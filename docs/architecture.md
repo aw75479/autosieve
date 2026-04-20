@@ -1,0 +1,116 @@
+# Architecture
+
+## Overview
+
+mailfilter is a command-line tool that bridges IMAP mailboxes and Sieve mail
+filtering.  It follows a **pipeline architecture**: data flows through
+discrete stages that can be run independently or chained together.
+
+```
+IMAP Inbox ──> extract-aliases ──> aliases.json ──> generate ──> .sieve ──> ManageSieve
+   (scan)        (discover)        (edit/merge)     (render)    (script)    (upload)
+```
+
+## Modules
+
+### cli.py -- Command-line interface
+
+Entry point.  Defines two subcommands (`generate`, `extract-aliases`) via
+`argparse`.  Handles parameter resolution with priority:
+CLI flags > TOML config > interactive prompts.
+
+### config.py -- Configuration model
+
+Defines the internal data model (`Rule`, `Config`) and loads alias files
+(JSON).  Responsible for:
+
+- Normalizing two input formats (dict and list) into `list[Rule]`.
+- Merging rules that target the same folder (`_merge_rules_by_folder`).
+- Validating all fields with descriptive error messages.
+
+### imap_alias.py -- IMAP alias extraction
+
+Connects to an IMAP server, scans message headers, and discovers email
+aliases.  Key design decisions:
+
+- **Batched FETCH**: messages are fetched in batches of 100 to avoid IMAP
+  argument length limits.
+- **Header tracking**: each discovered alias records which headers it was
+  found in (e.g. `X-Original-To`, `Delivered-To`), enabling per-rule header
+  matching in generated Sieve scripts.
+- **Incremental updates**: the `last_fetched` date in the alias file enables
+  scanning only new messages.
+- **Merge semantics**: new aliases are merged into existing alias files
+  respecting folder grouping and deduplication.
+
+### sieve.py -- Sieve script generator
+
+Renders `Config` into a valid Sieve script (RFC 5228).  Produces:
+
+- `require` declarations based on active features.
+- One `if` block per rule with `anyof` conditions when multiple
+  aliases/headers match.
+- Per-rule header matching when discovered headers are available, falling
+  back to global headers otherwise.
+
+### managesieve.py -- ManageSieve client
+
+Implements a subset of the ManageSieve protocol (RFC 5804):
+
+- SASL PLAIN authentication.
+- STARTTLS negotiation (automatic or explicit).
+- `PUTSCRIPT`, `SETACTIVE`, `LISTSCRIPTS`, `CHECKSCRIPT` commands.
+
+### server_config.py -- TOML configuration
+
+Loads server settings from a TOML file (`mailfilter.toml`).  Sections:
+`[imap]`, `[managesieve]`, `[alias]`, `[output]`.
+
+## Standards reference
+
+| Standard   | Title                                      | Usage                    |
+|------------|--------------------------------------------|--------------------------|
+| RFC 5228   | Sieve: An Email Filtering Language         | Script generation        |
+| RFC 5804   | ManageSieve Protocol                       | Script upload/management |
+| RFC 3501   | IMAP4rev1                                  | Alias extraction         |
+| RFC 5321   | SMTP (envelope-level routing)              | Received header parsing  |
+| RFC 5322   | Internet Message Format                    | Address header parsing   |
+
+## Data flow
+
+### extract-aliases
+
+1. Connect to IMAP server (SSL/STARTTLS/plain).
+2. SELECT folder (default: INBOX).
+3. SEARCH for message IDs (optionally filtered by SINCE date).
+4. FETCH headers in batches of 100 (`To`, `Delivered-To`, `X-Original-To`,
+   `Received`).
+5. Parse addresses from each header, recording which header each alias was
+   found in.
+6. Filter by domain.
+7. Group aliases by folder (`<prefix>/<local-part>`), merge `+` suffixes.
+8. Merge into existing alias file or create new one.
+9. Update `last_fetched` timestamp.
+10. Write JSON output.
+
+### generate
+
+1. Load alias file (JSON) via `config.py`.
+2. Normalize rules (dict or list format -> `list[Rule]`).
+3. Merge rules targeting the same folder.
+4. Render Sieve script via `sieve.py`.
+5. Optionally upload via ManageSieve.
+
+## Design principles
+
+- **Stdlib-only runtime**: no third-party dependencies at runtime.  All
+  dependencies (ruff, pytest, mypy, etc.) are dev-only.
+- **Separation of concerns**: each module has a single responsibility.
+  `config.py` knows nothing about IMAP; `sieve.py` knows nothing about
+  ManageSieve.
+- **Incremental operation**: designed for repeated runs.  Alias files are
+  merged, not overwritten.  Only new messages are scanned.
+- **Fail-fast validation**: configuration errors are caught early with clear
+  messages before any network operations.
+- **Testability**: all network I/O is behind interfaces that can be mocked.
+  No global state.

@@ -7,6 +7,7 @@ import re
 import socket
 import ssl
 from collections.abc import Sequence
+from typing import Any
 
 from mailfilter.sieve import sieve_quote
 
@@ -20,17 +21,17 @@ class ManageSieveClient:
         self,
         host: str,
         port: int,
-        tls_mode: str = "auto",
+        connection_security: str = "auto",
         insecure: bool = False,
         timeout: float = 15.0,
     ) -> None:
         self.host = host
         self.port = port
-        self.tls_mode = tls_mode
+        self.connection_security = connection_security
         self.insecure = insecure
         self.timeout = timeout
         self.sock: socket.socket | ssl.SSLSocket | None = None
-        self.file = None
+        self.file: Any = None
         self.capabilities: dict[str, str | None] = {}
 
     def __enter__(self) -> ManageSieveClient:
@@ -54,7 +55,7 @@ class ManageSieveClient:
         raw = socket.create_connection((self.host, self.port), timeout=self.timeout)
         raw.settimeout(self.timeout)
 
-        if self.tls_mode == "implicit":
+        if self.connection_security == "ssl":
             ctx = self._tls_context()
             self.sock = ctx.wrap_socket(raw, server_hostname=self.host)
         else:
@@ -66,10 +67,10 @@ class ManageSieveClient:
             raise ManageSieveError(f"unexpected greeting status: {final}")
         self.capabilities = self._parse_capabilities(lines)
 
-        if self.tls_mode in {"auto", "starttls"}:
-            if self.tls_mode == "starttls" or "STARTTLS" in self.capabilities:
+        if self.connection_security in {"auto", "starttls"}:
+            if self.connection_security == "starttls" or "STARTTLS" in self.capabilities:
                 self.starttls()
-            elif self.tls_mode == "starttls":
+            elif self.connection_security == "starttls":
                 raise ManageSieveError("server did not advertise STARTTLS")
 
     def starttls(self) -> None:
@@ -89,12 +90,8 @@ class ManageSieveClient:
     def authenticate_plain(self, username: str, password: str, authz_id: str = "") -> None:
         sasl = self.capabilities.get("SASL") or ""
         if "PLAIN" not in sasl.split():
-            raise ManageSieveError(
-                f"server does not advertise SASL PLAIN; capabilities: {self.capabilities}"
-            )
-        payload = base64.b64encode(f"{authz_id}\x00{username}\x00{password}".encode()).decode(
-            "ascii"
-        )
+            raise ManageSieveError(f"server does not advertise SASL PLAIN; capabilities: {self.capabilities}")
+        payload = base64.b64encode(f"{authz_id}\x00{username}\x00{password}".encode()).decode("ascii")
         self.send_command(f'AUTHENTICATE "PLAIN" "{payload}"')
         lines, final = self.read_response_block()
         if final[0] != "OK":
@@ -107,9 +104,7 @@ class ManageSieveClient:
             raise ManageSieveError(f"CHECKSCRIPT failed: {final}")
 
     def put_script(self, script_name: str, script_text: str) -> None:
-        self.send_command(
-            f"PUTSCRIPT {sieve_quote(script_name)} {self._literal(script_text)}", raw=True
-        )
+        self.send_command(f"PUTSCRIPT {sieve_quote(script_name)} {self._literal(script_text)}", raw=True)
         _, final = self.read_response_block()
         if final[0] != "OK":
             raise ManageSieveError(f"PUTSCRIPT failed: {final}")
@@ -201,13 +196,13 @@ def upload_via_managesieve(
     password: str,
     script_name: str,
     script_text: str,
-    tls_mode: str,
+    connection_security: str,
     insecure: bool,
     authz_id: str,
     do_check: bool,
     activate: bool,
 ) -> list[tuple[str, bool]]:
-    with ManageSieveClient(host=host, port=port, tls_mode=tls_mode, insecure=insecure) as client:
+    with ManageSieveClient(host=host, port=port, connection_security=connection_security, insecure=insecure) as client:
         client.authenticate_plain(username=username, password=password, authz_id=authz_id)
         if do_check:
             client.check_script(script_text)

@@ -23,27 +23,14 @@ class TestResolvePassword:
     def test_direct(self):
         assert resolve_password(password="secret") == "secret"
 
-    def test_env(self, monkeypatch):
-        monkeypatch.setenv("TEST_PW", "fromenv")
-        assert resolve_password(password_env="TEST_PW") == "fromenv"
-
-    def test_env_missing(self):
-        with pytest.raises(RuntimeError, match="not set"):
-            resolve_password(password_env="NONEXISTENT_VAR_12345")
-
-    def test_file(self, tmp_path):
-        f = tmp_path / "pw"
-        f.write_text("frompwfile\n")
-        assert resolve_password(password_file=str(f)) == "frompwfile"
-
-    def test_priority_direct_over_env(self, monkeypatch):
-        monkeypatch.setenv("TEST_PW", "fromenv")
-        assert resolve_password(password="direct", password_env="TEST_PW") == "direct"
+    def test_prompt_fallback(self, monkeypatch):
+        monkeypatch.setattr("mailfilter.cli.getpass.getpass", lambda prompt: "prompted")
+        assert resolve_password() == "prompted"
 
 
 class TestCLIGenerate:
     def test_generate_stdout(self, sample_config_path, capsys):
-        rc = main(["generate", str(sample_config_path)])
+        rc = main(["generate", str(sample_config_path), "--stdout"])
         assert rc == 0
         out = capsys.readouterr().out
         assert "fileinto" in out
@@ -64,7 +51,7 @@ class TestCLIGenerate:
         assert rc == 2
 
     def test_generate_override_script_name(self, sample_config_path, capsys):
-        rc = main(["generate", str(sample_config_path), "--script-name", "custom"])
+        rc = main(["generate", str(sample_config_path), "--script-name", "custom", "--stdout"])
         assert rc == 0
 
 

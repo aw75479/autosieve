@@ -1,0 +1,8 @@
+{
+    "[python]": {
+        "editor.rulers": [160],
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true
+    },
+    "python.analysis.typeCheckingMode": "basic"
+}

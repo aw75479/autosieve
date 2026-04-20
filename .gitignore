@@ -15,3 +15,8 @@ venv/
 .env
 .env.*
 !.env.example
+
+# Runtime config and output (user copies from .template)
+mailfilter.toml
+mailfilter.sieve
+aliases.json

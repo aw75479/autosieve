@@ -48,7 +48,7 @@ class TestManageSieveClient:
         mock_conn.return_value = mock_sock
         mock_sock.makefile.return_value = _make_file(["NO greeting failed"])
 
-        client = ManageSieveClient("host", 4190, tls_mode="plain")
+        client = ManageSieveClient("host", 4190, connection_security="none")
         with pytest.raises(ManageSieveError, match="unexpected greeting"):
             client.connect()
 
@@ -64,7 +64,7 @@ class TestManageSieveClient:
             ]
         )
 
-        client = ManageSieveClient("host", 4190, tls_mode="plain")
+        client = ManageSieveClient("host", 4190, connection_security="none")
         client.connect()
         assert client.capabilities["SASL"] == "PLAIN"
 
@@ -81,7 +81,7 @@ class TestManageSieveClient:
             ]
         )
 
-        client = ManageSieveClient("host", 4190, tls_mode="plain")
+        client = ManageSieveClient("host", 4190, connection_security="none")
         client.connect()
         with pytest.raises(ManageSieveError, match="SASL PLAIN"):
             client.authenticate_plain("user", "pass")

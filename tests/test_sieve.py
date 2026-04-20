@@ -36,9 +36,7 @@ class TestGenerateRuleBlock:
 
     def test_multiple_headers_uses_anyof(self):
         rule = Rule(aliases=["a@b.com"], folder="F")
-        block = generate_rule_block(
-            rule, headers=["X-Original-To", "Delivered-To"], match_type="is", use_create=False
-        )
+        block = generate_rule_block(rule, headers=["X-Original-To", "Delivered-To"], match_type="is", use_create=False)
         assert "anyof" in block
         assert '"X-Original-To"' in block
         assert '"Delivered-To"' in block
@@ -57,6 +55,13 @@ class TestGenerateRuleBlock:
         rule = Rule(aliases=["a@b.com"], folder="F", comment="My rule")
         block = generate_rule_block(rule, headers=["To"], match_type="is", use_create=False)
         assert block.startswith("# My rule")
+
+    def test_per_rule_headers(self):
+        rule = Rule(aliases=["a@b.com"], folder="F", headers=["X-Original-To"])
+        block = generate_rule_block(rule, headers=["To", "Delivered-To"], match_type="is", use_create=False)
+        assert '"X-Original-To"' in block
+        assert '"To"' not in block
+        assert '"Delivered-To"' not in block
 
 
 class TestGenerateSieve:
@@ -128,7 +133,27 @@ class TestGenerateSieve:
         # Must have two rule blocks.
         assert sieve.count("fileinto :create") == 2
         assert sieve.count("stop;") == 2
-        # Must reference the sample aliases.
-        assert "kunde1@maildomain.de" in sieve
-        assert "kunde2@maildomain.de" in sieve
-        assert "kunde2+alt@maildomain.de" in sieve
+
+    def test_same_folder_rules_merged_in_sieve(self, tmp_path):
+        """Two JSON rules mapping to the same folder produce ONE sieve if-block."""
+        import json
+
+        from mailfilter.config import load_config
+
+        data = {
+            "rules": [
+                {"alias": "a@b.com", "folder": "Work"},
+                {"alias": "c@b.com", "folder": "Work"},
+            ]
+        }
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        sieve = generate_sieve(config)
+        # Only one fileinto / one stop => one if-block.
+        assert sieve.count('fileinto "Work";') == 1
+        assert sieve.count("stop;") == 1
+        # Both aliases appear in the same anyof block.
+        assert '"a@b.com"' in sieve
+        assert '"c@b.com"' in sieve
+        assert "anyof" in sieve

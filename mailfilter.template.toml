@@ -1,0 +1,30 @@
+# mailfilter server configuration
+# Copy this file to mailfilter.toml, remove the .template suffix, and edit.
+# mailfilter auto-loads mailfilter.toml from the current directory.
+
+[imap]
+host = "mail.example.com"
+port = 993
+user = "you@example.com"
+# password = "secret"            # optional -- prompted if omitted
+connection_security = "ssl"      # ssl | starttls | none  (aligned with Thunderbird)
+# insecure = false               # set true to skip TLS certificate verification
+folder = "INBOX"
+domain = "example.com"           # only extract aliases matching this domain
+# headers = ["To", "Delivered-To", "X-Original-To"]
+
+[managesieve]
+host = "mail.example.com"
+port = 4190
+username = "you@example.com"
+# password = "secret"            # optional -- prompted if omitted
+connection_security = "auto"     # auto | ssl | starttls | none
+# insecure = false
+# authz_id = ""
+
+[alias]
+folder_prefix = "alias"          # aliases are sorted into <prefix>/<local-part>
+
+[output]
+sieve_file = "mailfilter.sieve"  # default output file for 'generate'
+alias_file = "aliases.json"      # default output file for 'extract-aliases'

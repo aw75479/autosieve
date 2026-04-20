@@ -19,6 +19,7 @@ class Rule:
     aliases: list[str]
     folder: str
     comment: str | None = None
+    headers: list[str] | None = None
 
 
 @dataclass
@@ -36,6 +37,44 @@ def load_json(path: Path) -> Any:
         return json.load(f)
 
 
+def _merge_rules_by_folder(rules: list[Rule]) -> list[Rule]:
+    """Merge rules that target the same folder into a single rule.
+
+    The first rule's comment wins when merging. Alias order is preserved,
+    duplicates are removed.
+    """
+    folder_order: list[str] = []
+    by_folder: dict[str, Rule] = {}
+    for rule in rules:
+        if rule.folder in by_folder:
+            existing = by_folder[rule.folder]
+            seen = set(existing.aliases)
+            for alias in rule.aliases:
+                if alias not in seen:
+                    existing.aliases.append(alias)
+                    seen.add(alias)
+            if existing.comment is None and rule.comment is not None:
+                existing.comment = rule.comment
+            # Merge per-rule headers.
+            if existing.headers is not None and rule.headers is not None:
+                seen_h = set(existing.headers)
+                for h in rule.headers:
+                    if h not in seen_h:
+                        existing.headers.append(h)
+                        seen_h.add(h)
+            elif rule.headers is not None:
+                existing.headers = list(rule.headers)
+        else:
+            folder_order.append(rule.folder)
+            by_folder[rule.folder] = Rule(
+                aliases=list(rule.aliases),
+                folder=rule.folder,
+                comment=rule.comment,
+                headers=list(rule.headers) if rule.headers else None,
+            )
+    return [by_folder[f] for f in folder_order]
+
+
 def _normalize_rules(raw_rules: Any) -> list[Rule]:
     rules: list[Rule] = []
 
@@ -44,7 +83,7 @@ def _normalize_rules(raw_rules: Any) -> list[Rule]:
             if not isinstance(alias, str) or not isinstance(folder, str):
                 raise ConfigError("rules dict must map string alias -> string folder")
             rules.append(Rule(aliases=[alias.strip()], folder=folder.strip()))
-        return rules
+        return _merge_rules_by_folder(rules)
 
     if not isinstance(raw_rules, list):
         raise ConfigError("'rules' must be a list or an object mapping alias->folder")
@@ -65,9 +104,7 @@ def _normalize_rules(raw_rules: Any) -> list[Rule]:
         if isinstance(alias_raw, str):
             aliases.append(alias_raw)
         if aliases_raw is not None:
-            if not isinstance(aliases_raw, list) or not all(
-                isinstance(x, str) for x in aliases_raw
-            ):
+            if not isinstance(aliases_raw, list) or not all(isinstance(x, str) for x in aliases_raw):
                 raise ConfigError(f"rule #{idx} field 'aliases' must be a list of strings")
             aliases.extend(aliases_raw)
 
@@ -75,15 +112,22 @@ def _normalize_rules(raw_rules: Any) -> list[Rule]:
         if not aliases:
             raise ConfigError(f"rule #{idx} needs 'alias' or 'aliases'")
 
+        # Per-rule headers override.
+        headers_raw = item.get("headers")
+        rule_headers: list[str] | None = None
+        if isinstance(headers_raw, list) and all(isinstance(h, str) for h in headers_raw):
+            rule_headers = [h.strip() for h in headers_raw if h.strip()] or None
+
         rules.append(
             Rule(
                 aliases=aliases,
                 folder=folder.strip(),
                 comment=comment.strip() if isinstance(comment, str) and comment.strip() else None,
+                headers=rule_headers,
             )
         )
 
-    return rules
+    return _merge_rules_by_folder(rules)
 
 
 def load_config(path: Path) -> Config:
@@ -92,11 +136,7 @@ def load_config(path: Path) -> Config:
         raise ConfigError("top-level JSON must be an object")
 
     headers = raw.get("headers", DEFAULT_HEADERS)
-    if (
-        not isinstance(headers, list)
-        or not headers
-        or not all(isinstance(h, str) and h.strip() for h in headers)
-    ):
+    if not isinstance(headers, list) or not headers or not all(isinstance(h, str) and h.strip() for h in headers):
         raise ConfigError("'headers' must be a non-empty list of header names")
     headers = [h.strip() for h in headers]
 

@@ -6,7 +6,14 @@ import json
 
 import pytest
 
-from mailfilter.config import Config, ConfigError, Rule, _normalize_rules, load_config
+from mailfilter.config import (
+    Config,
+    ConfigError,
+    Rule,
+    _merge_rules_by_folder,
+    _normalize_rules,
+    load_config,
+)
 
 
 class TestNormalizeRules:
@@ -103,3 +110,147 @@ class TestLoadConfig:
         p.write_text(json.dumps(data))
         config = load_config(p)
         assert config.match_type == "contains"
+
+
+class TestMergeRulesByFolder:
+    def test_no_duplicates(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F1"),
+            Rule(aliases=["c@b.com"], folder="F2"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert len(result) == 2
+        assert result[0].aliases == ["a@b.com"]
+        assert result[1].aliases == ["c@b.com"]
+
+    def test_same_folder_merged(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F"),
+            Rule(aliases=["c@b.com"], folder="F"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert len(result) == 1
+        assert result[0].folder == "F"
+        assert result[0].aliases == ["a@b.com", "c@b.com"]
+
+    def test_three_rules_same_folder(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F"),
+            Rule(aliases=["c@b.com"], folder="F"),
+            Rule(aliases=["d@b.com"], folder="F"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert len(result) == 1
+        assert result[0].aliases == ["a@b.com", "c@b.com", "d@b.com"]
+
+    def test_mixed_folders(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F1"),
+            Rule(aliases=["c@b.com"], folder="F2"),
+            Rule(aliases=["d@b.com"], folder="F1"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert len(result) == 2
+        assert result[0].folder == "F1"
+        assert result[0].aliases == ["a@b.com", "d@b.com"]
+        assert result[1].folder == "F2"
+
+    def test_duplicate_alias_deduped(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F"),
+            Rule(aliases=["a@b.com", "c@b.com"], folder="F"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert len(result) == 1
+        assert result[0].aliases == ["a@b.com", "c@b.com"]
+
+    def test_first_comment_wins(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F", comment="first"),
+            Rule(aliases=["c@b.com"], folder="F", comment="second"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert result[0].comment == "first"
+
+    def test_none_comment_inherits(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F"),
+            Rule(aliases=["c@b.com"], folder="F", comment="late"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert result[0].comment == "late"
+
+    def test_preserves_order(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F2"),
+            Rule(aliases=["b@b.com"], folder="F1"),
+            Rule(aliases=["c@b.com"], folder="F3"),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert [r.folder for r in result] == ["F2", "F1", "F3"]
+
+    def test_empty_input(self):
+        assert _merge_rules_by_folder([]) == []
+
+    def test_does_not_mutate_input(self):
+        r1 = Rule(aliases=["a@b.com"], folder="F")
+        r2 = Rule(aliases=["c@b.com"], folder="F")
+        _merge_rules_by_folder([r1, r2])
+        assert r1.aliases == ["a@b.com"]
+
+    def test_normalize_rules_merges_list_format(self):
+        raw = [
+            {"alias": "a@b.com", "folder": "F"},
+            {"alias": "c@b.com", "folder": "F"},
+        ]
+        rules = _normalize_rules(raw)
+        assert len(rules) == 1
+        assert set(rules[0].aliases) == {"a@b.com", "c@b.com"}
+
+    def test_normalize_rules_merges_dict_format(self):
+        raw = {"a@b.com": "F", "c@b.com": "F"}
+        rules = _normalize_rules(raw)
+        assert len(rules) == 1
+        assert set(rules[0].aliases) == {"a@b.com", "c@b.com"}
+
+    def test_load_config_merges(self, tmp_path):
+        data = {
+            "rules": [
+                {"alias": "a@b.com", "folder": "Work"},
+                {"alias": "c@b.com", "folder": "Work"},
+            ]
+        }
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert len(config.rules) == 1
+        assert config.rules[0].folder == "Work"
+        assert set(config.rules[0].aliases) == {"a@b.com", "c@b.com"}
+
+    def test_merge_headers(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F", headers=["To"]),
+            Rule(aliases=["c@b.com"], folder="F", headers=["Delivered-To"]),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert len(result) == 1
+        assert set(result[0].headers) == {"To", "Delivered-To"}
+
+    def test_none_headers_inherits(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F"),
+            Rule(aliases=["c@b.com"], folder="F", headers=["To"]),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert result[0].headers == ["To"]
+
+    def test_per_rule_headers_from_json(self, tmp_path):
+        data = {
+            "rules": [
+                {"alias": "a@b.com", "folder": "F", "headers": ["X-Original-To"]},
+            ]
+        }
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.rules[0].headers == ["X-Original-To"]

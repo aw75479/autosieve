@@ -18,13 +18,25 @@ packages = ["src/mailfilter"]
 
 [dependency-groups]
 dev = [
+    "poethepoet>=0.29",
     "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "mypy>=1.10",
     "ruff>=0.11",
 ]
 
+[tool.poe.tasks]
+format = "ruff format src/ tests/"
+check-format = "ruff format --check src/ tests/"
+lint = "ruff check src/ tests/"
+test = "pytest"
+typecheck = "mypy src/"
+coverage = "pytest --cov=mailfilter --cov-report=term-missing tests/"
+check = ["lint", "check-format", "typecheck", "test"]
+
 [tool.ruff]
 target-version = "py311"
-line-length = 99
+line-length = 160
 exclude = ["generate_and_upload_sieve_managesieve.py"]
 
 [tool.ruff.lint]

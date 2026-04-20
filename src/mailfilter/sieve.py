@@ -11,12 +11,11 @@ def sieve_quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def generate_rule_block(
-    rule: Rule, headers: Sequence[str], match_type: str, use_create: bool
-) -> str:
+def generate_rule_block(rule: Rule, headers: Sequence[str], match_type: str, use_create: bool) -> str:
+    effective_headers = rule.headers if rule.headers else headers
     tests: list[str] = []
     for alias in rule.aliases:
-        for header in headers:
+        for header in effective_headers:
             tests.append(f"header :{match_type} {sieve_quote(header)} {sieve_quote(alias)}")
 
     if len(tests) == 1:
@@ -48,9 +47,7 @@ def generate_sieve(config: Config) -> str:
     ]
 
     for idx, rule in enumerate(config.rules):
-        parts.append(
-            generate_rule_block(rule, config.headers, config.match_type, config.use_create)
-        )
+        parts.append(generate_rule_block(rule, config.headers, config.match_type, config.use_create))
         if idx != len(config.rules) - 1:
             parts.append("")
 

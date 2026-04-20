@@ -20,6 +20,7 @@ class Rule:
     folder: str
     comment: str | None = None
     headers: list[str] | None = None
+    active: bool = True
 
 
 @dataclass
@@ -55,6 +56,9 @@ def _merge_rules_by_folder(rules: list[Rule]) -> list[Rule]:
                     seen.add(alias)
             if existing.comment is None and rule.comment is not None:
                 existing.comment = rule.comment
+            # If any merged rule is inactive, the merged result is inactive.
+            if not rule.active:
+                existing.active = False
             # Merge per-rule headers.
             if existing.headers is not None and rule.headers is not None:
                 seen_h = set(existing.headers)
@@ -71,6 +75,7 @@ def _merge_rules_by_folder(rules: list[Rule]) -> list[Rule]:
                 folder=rule.folder,
                 comment=rule.comment,
                 headers=list(rule.headers) if rule.headers else None,
+                active=rule.active,
             )
     return [by_folder[f] for f in folder_order]
 
@@ -118,12 +123,17 @@ def _normalize_rules(raw_rules: Any) -> list[Rule]:
         if isinstance(headers_raw, list) and all(isinstance(h, str) for h in headers_raw):
             rule_headers = [h.strip() for h in headers_raw if h.strip()] or None
 
+        active = item.get("active", True)
+        if not isinstance(active, bool):
+            active = True
+
         rules.append(
             Rule(
                 aliases=aliases,
                 folder=folder.strip(),
                 comment=comment.strip() if isinstance(comment, str) and comment.strip() else None,
                 headers=rule_headers,
+                active=active,
             )
         )
 
@@ -143,8 +153,8 @@ def load_config(path: Path) -> Config:
     use_create = bool(raw.get("use_create", False))
     explicit_keep = bool(raw.get("explicit_keep", False))
     match_type = str(raw.get("match_type", "is")).strip().lower()
-    if match_type not in {"is", "contains"}:
-        raise ConfigError("'match_type' must be 'is' or 'contains'")
+    if match_type not in {"is", "contains", "matches", "regex"}:
+        raise ConfigError("'match_type' must be 'is', 'contains', 'matches', or 'regex'")
 
     script_name = str(raw.get("script_name", "alias-router")).strip()
     if not script_name:

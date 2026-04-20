@@ -4,20 +4,21 @@ Possible future enhancements for mailfilter, roughly ordered by expected value.
 
 ## High priority
 
-- **Regex / wildcard matching**: support `match_type: "regex"` or `"matches"`
+- ~~**Regex / wildcard matching**: support `match_type: "regex"` or `"matches"`
   for Sieve `:regex` and `:matches` comparators.  Useful for catch-all
-  patterns like `*@subdomain.example.com`.
+  patterns like `*@subdomain.example.com`.~~ **Implemented.**
 
-- **Dry-run / diff mode**: show what would change in the alias file or Sieve
+- ~~**Dry-run / diff mode**: show what would change in the alias file or Sieve
   script without writing anything.  Compare the current server-side script
-  with the newly generated one.
+  with the newly generated one.~~ **Implemented** (`--dry-run` flag).
 
-- **Multi-folder scanning**: scan multiple IMAP folders (e.g. INBOX plus
-  Sent) to discover aliases from both incoming and outgoing mail.
+- ~~**Multi-folder scanning**: scan multiple IMAP folders (e.g. INBOX plus
+  Sent) to discover aliases from both incoming and outgoing mail.~~
+  **Implemented** (`--folder INBOX Sent` or `folders = ["INBOX", "Sent"]`).
 
-- **Alias deactivation**: mark aliases as inactive without deleting them.
+- ~~**Alias deactivation**: mark aliases as inactive without deleting them.
   Inactive aliases are preserved in the JSON but excluded from the generated
-  Sieve script.
+  Sieve script.~~ **Implemented** (`"active": false` in rule JSON).
 
 ## Medium priority
 

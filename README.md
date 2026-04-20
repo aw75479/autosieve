@@ -29,16 +29,17 @@ host = "mail.example.com"
 user = "you@example.com"
 domain = "example.com"
 connection_security = "ssl"      # ssl | starttls | none (aligned with Thunderbird)
+folders = ["INBOX"]              # IMAP folders to scan (supports multiple)
+# incremental = true             # use last_fetched for incremental scanning
 
 [managesieve]
 host = "mail.example.com"
 username = "you@example.com"
 connection_security = "auto"     # auto | ssl | starttls | none
+folder_prefix = "alias"          # aliases sorted into <prefix>/<local-part>
+# authz_id = ""                  # SASL authorization identity (RFC 4616)
 
-[alias]
-folder_prefix = "alias"
-
-[output]
+[filenames]
 sieve_file = "mailfilter.sieve"  # default output for 'generate'
 alias_file = "aliases.json"      # default output for 'extract-aliases'
 ```
@@ -80,13 +81,16 @@ Options:
 | `--config` | Server config TOML file (default: auto-load `mailfilter.toml`) |
 | `--user` | IMAP username (prompted if omitted) |
 | `--domain` | Only extract aliases matching this domain (prompted if omitted) |
-| `--folder` | IMAP folder to scan (default: INBOX) |
+| `--folder` | IMAP folder(s) to scan (default: INBOX). May specify multiple. |
 | `--limit` | Scan at most N messages (most recent first) |
 | `--since` | Only scan messages from this date (YYYY-MM-DD) |
 | `--headers` | Headers to scan (default: To Delivered-To X-Original-To) |
 | `--folder-prefix` | Folder prefix for alias rules (default: alias) |
 | `--connection-security` | ssl / starttls / none (default: ssl) |
+| `--no-incremental` | Disable incremental scanning (ignore last_fetched) |
+| `--dry-run` | Show what would change without writing |
 | `--password` | Password (prompted if omitted) |
+| `--store-password` | Store password in system keyring for future use |
 | `--insecure` | Disable TLS certificate verification |
 | `--stdout` | Write to stdout instead of a file |
 
@@ -124,7 +128,7 @@ Per-rule `headers` override the global setting. Rules without `headers` match ag
 uv run mailfilter generate aliases.json
 ```
 
-Output is written to `mailfilter.sieve` by default (configurable in `[output]`). Use `--stdout` to print to stdout, or `--output custom.sieve` to specify a file.
+Output is written to `mailfilter.sieve` by default (configurable in `[filenames]`). Use `--stdout` to print to stdout, or `--output custom.sieve` to specify a file.
 
 ### 4. Upload via ManageSieve
 
@@ -149,7 +153,9 @@ Options for `generate`:
 | `--connection-security` | auto / ssl / starttls / none |
 | `--no-activate` | Upload but do not activate |
 | `--no-check` | Skip CHECKSCRIPT before upload |
+| `--dry-run` | Show diff of what would change without writing |
 | `--password` | Password (prompted if omitted) |
+| `--store-password` | Store password in system keyring for future use |
 | `--insecure` | Disable TLS certificate verification |
 
 ## Alias file format
@@ -160,11 +166,11 @@ Options for `generate`:
 | `headers` | string[] | `["X-Original-To", "Delivered-To"]` | Global headers to match against |
 | `use_create` | bool | `false` | Use `fileinto :create` (auto-create folders) |
 | `explicit_keep` | bool | `false` | Append `keep;` at end of script |
-| `match_type` | `is` or `contains` | `is` | Sieve match type |
+| `match_type` | `is`, `contains`, `matches`, or `regex` | `is` | Sieve match type (`regex` requires server support) |
 | `last_fetched` | string | - | ISO date of last IMAP scan (auto-managed) |
 | `rules` | list or dict | required | Alias-to-folder mappings |
 
-Each rule: `alias` (string) and/or `aliases` (string[]), `folder` (string, required), `comment` (string, optional), `headers` (string[], optional per-rule override).
+Each rule: `alias` (string) and/or `aliases` (string[]), `folder` (string, required), `comment` (string, optional), `headers` (string[], optional per-rule override), `active` (bool, default `true` -- set to `false` to preserve but exclude from Sieve generation).
 
 ## Connection security
 

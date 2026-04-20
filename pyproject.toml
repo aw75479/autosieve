@@ -10,6 +10,9 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 
+[project.optional-dependencies]
+keyring = ["keyring>=25.0"]
+
 [project.scripts]
 mailfilter = "mailfilter.cli:main"
 
@@ -37,7 +40,6 @@ check = ["lint", "check-format", "typecheck", "test"]
 [tool.ruff]
 target-version = "py311"
 line-length = 160
-exclude = ["generate_and_upload_sieve_managesieve.py"]
 
 [tool.ruff.lint]
 select = [

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import difflib
 import getpass
 import sys
 from collections.abc import Sequence
@@ -25,6 +26,11 @@ from mailfilter.imap_alias import (
 from mailfilter.managesieve import upload_via_managesieve
 from mailfilter.server_config import load_server_config
 from mailfilter.sieve import generate_sieve
+
+try:
+    import keyring as _keyring  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    _keyring = None  # type: ignore[assignment]
 
 
 def eprint(*args: object) -> None:
@@ -49,14 +55,37 @@ def _prompt(label: str) -> str:
     return input()
 
 
+def _keyring_key(protocol: str, user: str, host: str) -> str:
+    """Build a keyring username key like ``imap://user@host``."""
+    return f"{protocol}://{user}@{host}"
+
+
 def resolve_password(
     password: str | None = None,
+    keyring_service: str | None = None,
+    keyring_user: str | None = None,
     prompt: str = "Password: ",
+    store_in_keyring: bool = False,
 ) -> str:
-    """Resolve password from direct value or interactive prompt."""
+    """Resolve password: direct value > keyring > interactive prompt.
+
+    When *store_in_keyring* is True the resolved password is saved to the
+    system keyring for future use (requires the ``keyring`` package).
+    """
     if password:
+        if store_in_keyring and _keyring and keyring_service and keyring_user:
+            _keyring.set_password(keyring_service, keyring_user, password)
         return password
-    return getpass.getpass(prompt)
+
+    if _keyring and keyring_service and keyring_user:
+        stored = _keyring.get_password(keyring_service, keyring_user)
+        if stored:
+            return stored
+
+    pw = getpass.getpass(prompt)
+    if store_in_keyring and _keyring and keyring_service and keyring_user:
+        _keyring.set_password(keyring_service, keyring_user, pw)
+    return pw
 
 
 def write_output(script_text: str, output_path: Path | None) -> None:
@@ -72,21 +101,20 @@ def write_output(script_text: str, output_path: Path | None) -> None:
 def _add_password_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--password", help="Password (prompted if omitted)")
     parser.add_argument("--insecure", action="store_true", help="Disable TLS certificate verification")
+    parser.add_argument("--store-password", action="store_true", help="Store password in system keyring for future use (requires keyring package)")
 
 
 # -- generate subcommand --
 
 
 def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
-    p = subparsers.add_parser(
-        "generate",
-        help="Generate a Sieve script from a JSON alias file.",
-    )
+    p = subparsers.add_parser("generate", help="Generate a Sieve script from a JSON alias file.")
     p.add_argument("alias_file", metavar="alias-file", type=Path, help="[required] JSON alias file")
     p.add_argument("--config", type=Path, help="Server config TOML file")
     p.add_argument("--output", type=Path, help="Output file (default: mailfilter.sieve)")
     p.add_argument("--stdout", action="store_true", help="Write to stdout instead of a file")
     p.add_argument("--script-name", help="Override script name from alias file")
+    p.add_argument("--dry-run", action="store_true", help="Show diff against existing output without writing")
 
     upload = p.add_argument_group("ManageSieve upload (only with --upload)")
     upload.add_argument("--upload", action="store_true", help="Upload via ManageSieve after generation")
@@ -137,13 +165,35 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         output_path = None
     elif args.output:
         output_path = args.output
-    elif srv and srv.output.sieve_file:
-        output_path = Path(srv.output.sieve_file)
+    elif srv and srv.filenames.sieve_file:
+        output_path = Path(srv.filenames.sieve_file)
     else:
         output_path = Path("mailfilter.sieve")
+
+    # Dry-run: show diff and exit.
+    if args.dry_run:
+        if output_path and output_path.exists():
+            old_lines = output_path.read_text(encoding="utf-8").splitlines(keepends=True)
+            new_lines = script_text.splitlines(keepends=True)
+            diff = difflib.unified_diff(old_lines, new_lines, fromfile=str(output_path), tofile="(new)")
+            diff_text = "".join(diff)
+            if diff_text:
+                sys.stdout.write(diff_text)
+            else:
+                eprint("No changes.")
+        else:
+            sys.stdout.write(script_text)
+        return 0
+
     write_output(script_text, output_path)
 
-    eprint(f"Generated {len(config.rules)} rule(s) for script {config.script_name!r}.")
+    active_count = sum(1 for r in config.rules if r.active)
+    inactive_count = len(config.rules) - active_count
+    msg = f"Generated {active_count} active rule(s)"
+    if inactive_count:
+        msg += f" ({inactive_count} inactive skipped)"
+    msg += f" for script {config.script_name!r}."
+    eprint(msg)
     if output_path:
         eprint(f"Wrote: {output_path}")
 
@@ -160,13 +210,15 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     insecure = args.insecure or (ms.insecure if ms else False)
     authz_id = args.authz_id or (ms.authz_id if ms else "")
     pw = args.password or (ms.password if ms else None)
+    store_pw = getattr(args, "store_password", False)
 
     try:
+        kr_user = _keyring_key("managesieve", username, host)
         scripts = upload_via_managesieve(
             host=host,
             port=port,
             username=username,
-            password=resolve_password(pw, prompt="ManageSieve password: "),
+            password=resolve_password(pw, keyring_service="mailfilter", keyring_user=kr_user, prompt="ManageSieve password: ", store_in_keyring=store_pw),
             script_name=config.script_name,
             script_text=script_text,
             connection_security=connection_security,
@@ -196,45 +248,20 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
 
 def _add_extract_aliases_parser(subparsers: argparse._SubParsersAction) -> None:
-    p = subparsers.add_parser(
-        "extract-aliases",
-        help="Scan an IMAP inbox and discover email aliases from message headers.",
-    )
-    p.add_argument(
-        "server",
-        nargs="?",
-        help="[required] IMAP server as host or host:port (default port: 993)",
-    )
+    p = subparsers.add_parser("extract-aliases", help="Scan an IMAP inbox and discover email aliases from message headers.")
+    p.add_argument("server", nargs="?", help="[required] IMAP server as host or host:port (default port: 993)")
     p.add_argument("--config", type=Path, help="Server config TOML file")
     p.add_argument("--user", help="[required] IMAP username (prompted if omitted)")
-    p.add_argument(
-        "--domain",
-        help="[required] Only extract aliases matching this domain (e.g. company.com)",
-    )
-    p.add_argument("--folder", default="INBOX", help="IMAP folder to scan (default: INBOX)")
-    p.add_argument("--limit", type=int, help="Scan at most N messages (most recent first)")
+    p.add_argument("--domain", help="[required] Only extract aliases matching this domain (e.g. company.com)")
+    p.add_argument("--folder", nargs="+", dest="folders", help="IMAP folder(s) to scan (default: INBOX). May specify multiple.")
+    p.add_argument("--limit", type=int, help="Scan at most N messages per folder (most recent first)")
     p.add_argument("--since", help="Only scan messages from this date onwards (YYYY-MM-DD)")
-    p.add_argument(
-        "--headers",
-        nargs="+",
-        help="Headers to extract aliases from (default: To Delivered-To X-Original-To)",
-    )
-    p.add_argument(
-        "--folder-prefix",
-        help="Folder prefix for alias rules (default: alias)",
-    )
-    p.add_argument(
-        "alias_file",
-        metavar="alias-file",
-        nargs="?",
-        type=Path,
-        help="JSON alias file to write/update (default: stdout)",
-    )
-    p.add_argument(
-        "--connection-security",
-        choices=["ssl", "starttls", "none"],
-        help="Connection security for IMAP (default: ssl). Aligned with Thunderbird: ssl, starttls, none",
-    )
+    p.add_argument("--headers", nargs="+", help="Headers to extract aliases from (default: To Delivered-To X-Original-To)")
+    p.add_argument("--folder-prefix", help="Folder prefix for alias rules (default: alias)")
+    p.add_argument("alias_file", metavar="alias-file", nargs="?", type=Path, help="JSON alias file to write/update (default: aliases.json)")
+    p.add_argument("--connection-security", choices=["ssl", "starttls", "none"], help="Connection security for IMAP (default: ssl)")
+    p.add_argument("--no-incremental", action="store_true", help="Disable incremental scanning (ignore last_fetched date)")
+    p.add_argument("--dry-run", action="store_true", help="Show what aliases would be added without writing")
     _add_password_args(p)
     p.add_argument("--stdout", action="store_true", help="Write to stdout instead of a file")
     p.set_defaults(func=_cmd_extract_aliases)
@@ -270,57 +297,59 @@ def _cmd_extract_aliases(args: argparse.Namespace) -> int:
     domain = args.domain or (imap_cfg.domain if imap_cfg and imap_cfg.domain else None) or _prompt("Domain filter (e.g. company.com)")
     domain = domain.lstrip("@")
 
-    folder = args.folder or (imap_cfg.folder if imap_cfg else "INBOX")
+    folders = args.folders or (imap_cfg.folders if imap_cfg else ["INBOX"])
     connection_security = args.connection_security or (imap_cfg.connection_security if imap_cfg else "ssl")
     insecure = args.insecure or (imap_cfg.insecure if imap_cfg else False)
     default_headers = ["To", "Delivered-To", "X-Original-To"]
     headers = tuple(args.headers or (imap_cfg.headers if imap_cfg else default_headers))
-    folder_prefix = args.folder_prefix or (srv.alias.folder_prefix if srv else "alias")
+    folder_prefix = args.folder_prefix or (srv.managesieve.folder_prefix if srv else "alias")
     pw = args.password or (imap_cfg.password if imap_cfg else None)
+    store_pw = getattr(args, "store_password", False)
 
-    # Incremental: if alias-file exists, use last_fetched as since date.
+    # Incremental: check config and CLI flag.
+    incremental = (imap_cfg.incremental if imap_cfg else True) and not args.no_incremental
+
+    # Determine output.
     existing_data: dict | None = None
     output_path: Path | None = args.alias_file
     if output_path is None and not args.stdout:
-        output_path = Path(srv.output.alias_file if srv else "aliases.json")
+        output_path = Path(srv.filenames.alias_file if srv else "aliases.json")
     since = _parse_date(args.since) if args.since else None
 
     if output_path and output_path.exists():
         try:
             existing_data = load_alias_file(output_path)
-            stored_since = get_last_fetched(existing_data)
-            if since is None and stored_since is not None:
-                # Overlap by 1 day to avoid missing messages at the boundary.
-                since = stored_since - timedelta(days=1)
-                eprint(f"Incremental update: fetching since {since.isoformat()}")
+            if incremental:
+                stored_since = get_last_fetched(existing_data)
+                if since is None and stored_since is not None:
+                    # Overlap by 1 day to avoid missing messages at the boundary.
+                    since = stored_since - timedelta(days=1)
+                    eprint(f"Incremental update: fetching since {since.isoformat()}")
         except Exception as exc:
             eprint(f"Warning: could not read existing alias file: {exc}")
 
     try:
-        password = resolve_password(pw, prompt="IMAP password: ")
-        conn = connect_imap(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            connection_security=connection_security,
-            insecure=insecure,
+        password = resolve_password(
+            pw,
+            keyring_service="mailfilter",
+            keyring_user=_keyring_key("imap", user, host),
+            prompt="IMAP password: ",
+            store_in_keyring=store_pw,
         )
+        conn = connect_imap(host=host, port=port, user=user, password=password, connection_security=connection_security, insecure=insecure)
     except Exception as exc:
         eprint(f"IMAP connection failed: {exc}")
         return 1
 
     try:
-        eprint(f"Scanning {folder} on {host}...")
-        aliases = extract_aliases(
-            conn,
-            folder=folder,
-            domain=domain,
-            headers=headers,
-            limit=args.limit,
-            since=since,
-            progress=stderr_progress,
-        )
+        # Multi-folder scanning: iterate over all folders and merge results.
+        all_aliases: dict[str, set[str]] = {}
+        for folder in folders:
+            eprint(f"Scanning {folder} on {host}...")
+            folder_aliases = extract_aliases(conn, folder=folder, domain=domain, headers=headers, limit=args.limit, since=since, progress=stderr_progress)
+            for addr, hdrs in folder_aliases.items():
+                all_aliases.setdefault(addr, set()).update(hdrs)
+        aliases = all_aliases
     except Exception as exc:
         eprint(f"Extraction failed: {exc}")
         return 1
@@ -339,11 +368,28 @@ def _cmd_extract_aliases(args: argparse.Namespace) -> int:
     if existing_data is not None:
         merge_aliases_into(existing_data, aliases, folder_prefix=folder_prefix)
         update_last_fetched(existing_data, today)
-        text = write_alias_mapping(existing_data, output_path)
+        result_data = existing_data
     else:
-        mapping = build_alias_mapping(aliases, folder_prefix=folder_prefix)
-        update_last_fetched(mapping, today)
-        text = write_alias_mapping(mapping, output_path)
+        result_data = build_alias_mapping(aliases, folder_prefix=folder_prefix)
+        update_last_fetched(result_data, today)
+
+    # Dry-run: show what would be written without writing.
+    if args.dry_run:
+        text = write_alias_mapping(result_data, None)
+        if output_path and output_path.exists():
+            old_lines = output_path.read_text(encoding="utf-8").splitlines(keepends=True)
+            new_lines = text.splitlines(keepends=True)
+            diff = difflib.unified_diff(old_lines, new_lines, fromfile=str(output_path), tofile="(new)")
+            diff_text = "".join(diff)
+            if diff_text:
+                sys.stdout.write(diff_text)
+            else:
+                eprint("No changes.")
+        else:
+            sys.stdout.write(text)
+        return 0
+
+    text = write_alias_mapping(result_data, output_path)
 
     if output_path is None:
         sys.stdout.write(text)

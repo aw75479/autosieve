@@ -83,7 +83,7 @@ class TestLoadConfig:
         assert config.script_name == "alias-router"
 
     def test_invalid_match_type(self, tmp_path):
-        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "match_type": "regex"}
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "match_type": "invalid"}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
         with pytest.raises(ConfigError, match="match_type"):
@@ -254,3 +254,96 @@ class TestMergeRulesByFolder:
         p.write_text(json.dumps(data))
         config = load_config(p)
         assert config.rules[0].headers == ["X-Original-To"]
+
+
+class TestActiveField:
+    def test_active_default_true(self):
+        raw = [{"alias": "a@b.com", "folder": "F"}]
+        rules = _normalize_rules(raw)
+        assert rules[0].active is True
+
+    def test_active_false_from_json(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F", "active": False}]}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.rules[0].active is False
+
+    def test_merge_inactive_propagates(self):
+        rules = [
+            Rule(aliases=["a@b.com"], folder="F", active=True),
+            Rule(aliases=["c@b.com"], folder="F", active=False),
+        ]
+        result = _merge_rules_by_folder(rules)
+        assert result[0].active is False
+
+    def test_invalid_active_ignored(self):
+        raw = [{"alias": "a@b.com", "folder": "F", "active": "nope"}]
+        rules = _normalize_rules(raw)
+        assert rules[0].active is True
+
+
+class TestRegexMatchType:
+    def test_regex_match_type(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "match_type": "regex"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.match_type == "regex"
+
+    def test_matches_match_type(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "match_type": "matches"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.match_type == "matches"
+
+
+class TestEdgeCases:
+    def test_empty_aliases_list_raises(self):
+        raw = [{"aliases": [], "folder": "F"}]
+        with pytest.raises(ConfigError, match="needs 'alias' or 'aliases'"):
+            _normalize_rules(raw)
+
+    def test_whitespace_only_alias_raises(self):
+        raw = [{"alias": "   ", "folder": "F"}]
+        with pytest.raises(ConfigError, match="needs 'alias' or 'aliases'"):
+            _normalize_rules(raw)
+
+    def test_invalid_aliases_type_raises(self):
+        raw = [{"aliases": "not-a-list", "folder": "F"}]
+        with pytest.raises(ConfigError, match="list of strings"):
+            _normalize_rules(raw)
+
+    def test_non_object_rule_raises(self):
+        with pytest.raises(ConfigError, match="must be an object"):
+            _normalize_rules(["just-a-string"])
+
+    def test_top_level_not_object_raises(self, tmp_path):
+        p = tmp_path / "cfg.json"
+        p.write_text("[]")
+        with pytest.raises(ConfigError, match="top-level"):
+            load_config(p)
+
+    def test_invalid_headers_raises(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "headers": []}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        with pytest.raises(ConfigError, match="headers"):
+            load_config(p)
+
+    def test_empty_script_name_raises(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "script_name": ""}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        with pytest.raises(ConfigError, match="script_name"):
+            load_config(p)
+
+    def test_dict_rule_non_string_raises(self):
+        with pytest.raises(ConfigError, match="string alias"):
+            _normalize_rules({123: "F"})
+
+    def test_per_rule_headers_whitespace_only(self):
+        raw = [{"alias": "a@b.com", "folder": "F", "headers": ["  ", ""]}]
+        rules = _normalize_rules(raw)
+        assert rules[0].headers is None

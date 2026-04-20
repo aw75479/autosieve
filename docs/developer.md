@@ -107,9 +107,10 @@ uv run mailfilter generate aliases.json --upload
 
 ## Code style
 
-- Line length: 99 characters (enforced by ruff, ruler visible in VS Code).
+- Line length: 160 characters (enforced by ruff, ruler visible in VS Code).
 - Python 3.11+ features are encouraged (`tomllib`, `match`, type unions).
-- No runtime dependencies beyond the standard library.
+- No runtime dependencies beyond the standard library.  `keyring` is an
+  optional dependency (`pip install mailfilter[keyring]`).
 - Ruff rules: E, W, F, I, N, UP, B, SIM, S, T20, RUF (see `pyproject.toml`).
 
 ## Release process

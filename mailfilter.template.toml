@@ -6,12 +6,13 @@
 host = "mail.example.com"
 port = 993
 user = "you@example.com"
-# password = "secret"            # optional -- prompted if omitted
+# password = "secret"            # optional -- prompted if omitted; use --store-password for keyring
 connection_security = "ssl"      # ssl | starttls | none  (aligned with Thunderbird)
-# insecure = false               # set true to skip TLS certificate verification
-folder = "INBOX"
+# insecure = false               # skip TLS certificate verification (NOT the same as "none")
+folders = ["INBOX"]              # IMAP folders to scan; supports multiple: ["INBOX", "Sent"]
 domain = "example.com"           # only extract aliases matching this domain
 # headers = ["To", "Delivered-To", "X-Original-To"]
+# incremental = true             # use last_fetched from alias file for incremental scanning
 
 [managesieve]
 host = "mail.example.com"
@@ -20,11 +21,9 @@ username = "you@example.com"
 # password = "secret"            # optional -- prompted if omitted
 connection_security = "auto"     # auto | ssl | starttls | none
 # insecure = false
-# authz_id = ""
-
-[alias]
+# authz_id = ""                  # SASL authorization identity (RFC 4616); leave empty for normal use
 folder_prefix = "alias"          # aliases are sorted into <prefix>/<local-part>
 
-[output]
+[filenames]
 sieve_file = "mailfilter.sieve"  # default output file for 'generate'
 alias_file = "aliases.json"      # default output file for 'extract-aliases'

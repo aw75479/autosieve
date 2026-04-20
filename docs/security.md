@@ -27,10 +27,33 @@ are:
 - The `--password` CLI flag is available for non-interactive use (e.g. CI
   pipelines).  In that case the password may appear in the process argument
   list.  For sensitive environments, prefer entering the password interactively
-  or storing it in the TOML config (which should be file-permission protected
-  and added to `.gitignore`).
+  or storing it in the system keyring.
+- **Keyring support** (optional): install `keyring` (`pip install mailfilter[keyring]`)
+  to store and retrieve passwords from the OS keychain (macOS Keychain,
+  Windows Credential Vault, Linux Secret Service / KWallet).  Use
+  `--store-password` to save a password to the keyring on first use.
 - `mailfilter.toml` is listed in `.gitignore` by default so credentials are
   not accidentally committed.
+
+### Authentication limitations
+
+Only **SASL PLAIN** (ManageSieve) and **IMAP LOGIN** are supported.  These
+mechanisms send credentials over the wire, which is safe when used with TLS
+(`connection_security = "ssl"` or `"starttls"`).
+
+More advanced mechanisms supported by Thunderbird and other clients are
+**not** implemented:
+
+- CRAM-MD5, SCRAM-SHA-1/256 (challenge-response)
+- NTLM, Kerberos / GSSAPI
+- OAuth2 (XOAUTH2, OAUTHBEARER) -- required by Gmail and Microsoft 365
+
+For servers that require OAuth2, mailfilter cannot be used directly.
+
+**Never use PLAIN/LOGIN without TLS** -- credentials would be sent in clear
+text.  The `insecure` flag only disables TLS certificate verification; it
+does **not** disable encryption.  `connection_security = "none"` disables
+encryption entirely and should only be used on trusted local networks.
 
 ### Sieve injection prevention
 
@@ -85,10 +108,15 @@ break out of a Sieve quoted string context.
 
 1. **Protect `mailfilter.toml`** with restrictive file permissions
    (`chmod 600`) if it contains passwords.
-2. **Use `connection_security = "ssl"`** (the default) for production mail
+2. **Use the system keyring** (`--store-password`) instead of storing
+   passwords in `mailfilter.toml` when possible.
+3. **Use `connection_security = "ssl"`** (the default) for production mail
    servers.
-3. **Do not use `--insecure`** in production.
-4. **Review generated Sieve scripts** before uploading to production servers,
+4. **Do not use `--insecure`** in production.  It disables TLS certificate
+   verification but keeps encryption.  It is *not* the same as
+   `connection_security = "none"` which disables encryption entirely.
+5. **Review generated Sieve scripts** before uploading to production servers,
    especially after the first run or when aliases change significantly.
-5. **Use incremental fetches** (`last_fetched`) to limit IMAP scanning to
+   Use `--dry-run` to preview changes before writing.
+6. **Use incremental fetches** (`last_fetched`) to limit IMAP scanning to
    recent messages, reducing exposure time for the IMAP connection.

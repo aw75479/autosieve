@@ -64,7 +64,8 @@ Implements a subset of the ManageSieve protocol (RFC 5804):
 ### server_config.py -- TOML configuration
 
 Loads server settings from a TOML file (`mailfilter.toml`).  Sections:
-`[imap]`, `[managesieve]`, `[alias]`, `[output]`.
+`[imap]`, `[managesieve]`, `[filenames]`.  Legacy section names `[alias]`
+and `[output]` are read for backward compatibility.
 
 ## Standards reference
 

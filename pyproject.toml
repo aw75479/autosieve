@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mailfilter"
+version = "0.1.0"
+description = "Generate Sieve scripts from JSON alias mappings, extract aliases from IMAP, and upload via ManageSieve."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+
+[project.scripts]
+mailfilter = "mailfilter.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mailfilter"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.11",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 99
+exclude = ["generate_and_upload_sieve_managesieve.py"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "S",    # flake8-bandit (security)
+    "T20",  # flake8-print
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "T201",  # print() used in CLI output
+    "S110",  # try-except-pass OK for cleanup (logout, socket close)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S106"]  # assert and hardcoded passwords OK in tests
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

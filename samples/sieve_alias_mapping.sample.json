@@ -1,0 +1,22 @@
+{
+  "script_name": "alias-router",
+  "headers": ["X-Original-To", "Delivered-To"],
+  "use_create": true,
+  "explicit_keep": false,
+  "match_type": "is",
+  "rules": [
+    {
+      "alias": "kunde1@maildomain.de",
+      "folder": "Korrespondenten/Kunde1",
+      "comment": "Sortiert Alias fuer Kunde1"
+    },
+    {
+      "aliases": [
+        "kunde2@maildomain.de",
+        "kunde2+alt@maildomain.de"
+      ],
+      "folder": "Korrespondenten/Kunde2",
+      "comment": "Mehrere Alias-Adressen fuer denselben Zielordner"
+    }
+  ]
+}

@@ -31,6 +31,9 @@ class Config:
     rules: list[Rule]
     explicit_keep: bool
     match_type: str
+    generation_mode: str = "header"
+    catch_all_folder: str | None = None
+    folder_prefix: str = "alias"
 
 
 def load_json(path: Path) -> Any:
@@ -156,6 +159,17 @@ def load_config(path: Path) -> Config:
     if match_type not in {"is", "contains", "matches", "regex"}:
         raise ConfigError("'match_type' must be 'is', 'contains', 'matches', or 'regex'")
 
+    generation_mode = str(raw.get("generation_mode", "header")).strip().lower()
+    if generation_mode not in {"header", "envelope"}:
+        raise ConfigError("'generation_mode' must be 'header' or 'envelope'")
+
+    catch_all_folder_raw = raw.get("catch_all_folder")
+    catch_all_folder: str | None = None
+    if isinstance(catch_all_folder_raw, str) and catch_all_folder_raw.strip():
+        catch_all_folder = catch_all_folder_raw.strip()
+
+    folder_prefix = str(raw.get("folder_prefix", "alias")).strip()
+
     script_name = str(raw.get("script_name", "alias-router")).strip()
     if not script_name:
         raise ConfigError("'script_name' must not be empty")
@@ -171,4 +185,7 @@ def load_config(path: Path) -> Config:
         rules=_normalize_rules(raw_rules),
         explicit_keep=explicit_keep,
         match_type=match_type,
+        generation_mode=generation_mode,
+        catch_all_folder=catch_all_folder,
+        folder_prefix=folder_prefix,
     )

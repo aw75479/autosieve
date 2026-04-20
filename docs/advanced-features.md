@@ -34,8 +34,9 @@ Possible future enhancements for mailfilter, roughly ordered by expected value.
 - **IMAP OAuth2 authentication**: support OAuth2 (XOAUTH2 / OAUTHBEARER)
   for providers that require it (e.g. Gmail, Microsoft 365).
 
-- **Envelope-based matching**: use Sieve `envelope` test instead of header
-  matching for more precise alias detection.
+- ~~**Envelope-based matching**: use Sieve `envelope` test instead of header
+  matching for more precise alias detection.~~ **Implemented**
+  (`"generation_mode": "envelope"` with `envelope` + `variables` extensions).
 
 - **Alias grouping / tagging**: group aliases by tag (e.g. "clients",
   "newsletters") and apply bulk operations per group.

@@ -167,10 +167,50 @@ Options for `generate`:
 | `use_create` | bool | `false` | Use `fileinto :create` (auto-create folders) |
 | `explicit_keep` | bool | `false` | Append `keep;` at end of script |
 | `match_type` | `is`, `contains`, `matches`, or `regex` | `is` | Sieve match type (`regex` requires server support) |
+| `generation_mode` | `header` or `envelope` | `header` | `header`: per-alias if-blocks; `envelope`: compact envelope+variables routing |
+| `folder_prefix` | string | `alias` | Folder prefix for envelope mode (`fileinto "{prefix}/${alias}"`) |
+| `catch_all_folder` | string or null | `null` | Catch-all folder for unmatched aliases in envelope mode |
 | `last_fetched` | string | - | ISO date of last IMAP scan (auto-managed) |
 | `rules` | list or dict | required | Alias-to-folder mappings |
 
 Each rule: `alias` (string) and/or `aliases` (string[]), `folder` (string, required), `comment` (string, optional), `headers` (string[], optional per-rule override), `active` (bool, default `true` -- set to `false` to preserve but exclude from Sieve generation).
+
+### Envelope mode
+
+Set `"generation_mode": "envelope"` for a compact script using Sieve `envelope` + `variables` extensions (RFC 5228, RFC 5229). Instead of one `if` block per alias, all aliases on the same domain are handled in a single block using variable interpolation:
+
+```json
+{
+  "generation_mode": "envelope",
+  "use_create": true,
+  "folder_prefix": "alias",
+  "catch_all_folder": "alias/_other",
+  "rules": [
+    {"alias": "alice@example.com", "folder": "alias/alice"},
+    {"alias": "bob@example.com", "folder": "alias/bob"}
+  ]
+}
+```
+
+Generates:
+
+```sieve
+require ["fileinto", "mailbox", "envelope", "variables"];
+
+if envelope :domain :is "to" "example.com" {
+    if envelope :localpart :matches "to" "*" {
+        set :lower "alias" "${1}";
+        if string :is "${alias}" ["alice", "bob"] {
+            fileinto :create "alias/${alias}";
+            stop;
+        }
+        fileinto :create "alias/_other";
+        stop;
+    }
+}
+```
+
+Requirements: server must support `envelope` and `variables` extensions (Dovecot Pigeonhole, Cyrus, Fastmail all do). The SMTP envelope `RCPT TO` must preserve the original alias (not rewrite to the final mailbox). Rules must follow the `{folder_prefix}/{local_part}` folder naming convention.
 
 ## Connection security
 

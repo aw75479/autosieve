@@ -347,3 +347,61 @@ class TestEdgeCases:
         raw = [{"alias": "a@b.com", "folder": "F", "headers": ["  ", ""]}]
         rules = _normalize_rules(raw)
         assert rules[0].headers is None
+
+
+class TestGenerationMode:
+    def test_default_header(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}]}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.generation_mode == "header"
+
+    def test_envelope(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "generation_mode": "envelope"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.generation_mode == "envelope"
+
+    def test_invalid_raises(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "generation_mode": "bad"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        with pytest.raises(ConfigError, match="generation_mode"):
+            load_config(p)
+
+    def test_catch_all_folder(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "catch_all_folder": "alias/_other"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.catch_all_folder == "alias/_other"
+
+    def test_catch_all_folder_default_none(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}]}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.catch_all_folder is None
+
+    def test_catch_all_folder_empty_string_is_none(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "catch_all_folder": "  "}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.catch_all_folder is None
+
+    def test_folder_prefix(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "folder_prefix": "mail"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.folder_prefix == "mail"
+
+    def test_folder_prefix_default(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}]}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_config(p)
+        assert config.folder_prefix == "alias"

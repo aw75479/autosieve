@@ -72,6 +72,7 @@ and `[output]` are read for backward compatibility.
 | Standard   | Title                                      | Usage                    |
 |------------|--------------------------------------------|--------------------------|
 | RFC 5228   | Sieve: An Email Filtering Language         | Script generation        |
+| RFC 5229   | Sieve: Variables Extension                 | Envelope mode generation |
 | RFC 5804   | ManageSieve Protocol                       | Script upload/management |
 | RFC 3501   | IMAP4rev1                                  | Alias extraction         |
 | RFC 5321   | SMTP (envelope-level routing)              | Received header parsing  |
@@ -99,7 +100,10 @@ and `[output]` are read for backward compatibility.
 1. Load alias file (JSON) via `config.py`.
 2. Normalize rules (dict or list format -> `list[Rule]`).
 3. Merge rules targeting the same folder.
-4. Render Sieve script via `sieve.py`.
+4. Render Sieve script via `sieve.py`:
+   - **Header mode** (default): one `if header` block per rule.
+   - **Envelope mode**: groups aliases by domain, generates compact
+     `envelope` + `variables` script with dynamic `fileinto`.
 5. Optionally upload via ManageSieve.
 
 ## Design principles

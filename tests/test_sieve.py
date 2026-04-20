@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from mailfilter.config import Config, Rule
-from mailfilter.sieve import generate_rule_block, generate_sieve, sieve_quote
+from mailfilter.sieve import (
+    _group_rules_by_domain,
+    generate_rule_block,
+    generate_sieve,
+    generate_sieve_envelope,
+    sieve_quote,
+)
 
 
 class TestSieveQuote:
@@ -197,3 +203,200 @@ class TestGenerateSieve:
         sieve = generate_sieve(config)
         assert ":matches" in sieve
         assert '"regex"' not in sieve
+
+
+class TestGroupRulesByDomain:
+    def test_single_domain(self):
+        rules = [
+            Rule(aliases=["alice@example.com"], folder="alias/alice"),
+            Rule(aliases=["bob@example.com"], folder="alias/bob"),
+        ]
+        grouped = _group_rules_by_domain(rules, "alias")
+        assert grouped == {"example.com": ["alice", "bob"]}
+
+    def test_multi_domain(self):
+        rules = [
+            Rule(aliases=["alice@a.com"], folder="alias/alice"),
+            Rule(aliases=["bob@b.com"], folder="alias/bob"),
+        ]
+        grouped = _group_rules_by_domain(rules, "alias")
+        assert "a.com" in grouped
+        assert "b.com" in grouped
+
+    def test_skips_mismatched_folder(self):
+        rules = [
+            Rule(aliases=["alice@example.com"], folder="alias/alice"),
+            Rule(aliases=["logitell@example.com"], folder="alias/logitel"),
+        ]
+        grouped = _group_rules_by_domain(rules, "alias")
+        assert grouped == {"example.com": ["alice"]}
+
+    def test_skips_inactive(self):
+        rules = [
+            Rule(aliases=["alice@example.com"], folder="alias/alice"),
+            Rule(aliases=["bob@example.com"], folder="alias/bob", active=False),
+        ]
+        grouped = _group_rules_by_domain(rules, "alias")
+        assert grouped == {"example.com": ["alice"]}
+
+    def test_skips_no_at(self):
+        rules = [Rule(aliases=["noat"], folder="alias/noat")]
+        grouped = _group_rules_by_domain(rules, "alias")
+        assert grouped == {}
+
+    def test_custom_prefix(self):
+        rules = [Rule(aliases=["alice@example.com"], folder="mail/alice")]
+        grouped = _group_rules_by_domain(rules, "mail")
+        assert grouped == {"example.com": ["alice"]}
+
+    def test_deduplicates(self):
+        rules = [
+            Rule(aliases=["alice@example.com", "ALICE@example.com"], folder="alias/alice"),
+        ]
+        grouped = _group_rules_by_domain(rules, "alias")
+        assert grouped == {"example.com": ["alice"]}
+
+
+class TestGenerateSieveEnvelope:
+    def _config(self, **overrides) -> Config:
+        defaults = {
+            "headers": ["X-Original-To"],
+            "use_create": True,
+            "script_name": "test",
+            "explicit_keep": False,
+            "match_type": "is",
+            "generation_mode": "envelope",
+            "folder_prefix": "alias",
+            "catch_all_folder": None,
+            "rules": [
+                Rule(aliases=["alice@example.com"], folder="alias/alice"),
+                Rule(aliases=["bob@example.com"], folder="alias/bob"),
+            ],
+        }
+        defaults.update(overrides)
+        return Config(**defaults)
+
+    def test_requires_envelope_variables(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert '"envelope"' in sieve
+        assert '"variables"' in sieve
+        assert '"fileinto"' in sieve
+        assert '"mailbox"' in sieve
+
+    def test_requires_no_mailbox_without_create(self):
+        config = self._config(use_create=False)
+        sieve = generate_sieve_envelope(config)
+        assert '"mailbox"' not in sieve
+
+    def test_domain_block(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert 'envelope :domain :is "to" "example.com"' in sieve
+
+    def test_localpart_matches(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert 'envelope :localpart :matches "to" "*"' in sieve
+
+    def test_set_lower(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert 'set :lower "alias" "${1}"' in sieve
+
+    def test_string_is_aliases(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert 'string :is "${alias}"' in sieve
+        assert '"alice"' in sieve
+        assert '"bob"' in sieve
+
+    def test_fileinto_variable(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert 'fileinto :create "alias/${alias}"' in sieve
+
+    def test_fileinto_no_create(self):
+        config = self._config(use_create=False)
+        sieve = generate_sieve_envelope(config)
+        assert 'fileinto "alias/${alias}"' in sieve
+        assert ":create" not in sieve
+
+    def test_catch_all(self):
+        config = self._config(catch_all_folder="alias/_other")
+        sieve = generate_sieve_envelope(config)
+        assert 'fileinto :create "alias/_other"' in sieve
+
+    def test_no_catch_all(self):
+        config = self._config(catch_all_folder=None)
+        sieve = generate_sieve_envelope(config)
+        assert "_other" not in sieve
+
+    def test_explicit_keep(self):
+        config = self._config(explicit_keep=True)
+        sieve = generate_sieve_envelope(config)
+        assert sieve.strip().endswith("keep;")
+
+    def test_no_keep_by_default(self):
+        config = self._config(explicit_keep=False)
+        sieve = generate_sieve_envelope(config)
+        assert "keep;" not in sieve
+
+    def test_generated_header(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert sieve.startswith("# Generated by mailfilter")
+
+    def test_ends_with_newline(self):
+        config = self._config()
+        sieve = generate_sieve_envelope(config)
+        assert sieve.endswith("\n")
+
+    def test_inactive_skipped(self):
+        config = self._config(
+            rules=[
+                Rule(aliases=["alice@example.com"], folder="alias/alice"),
+                Rule(aliases=["bob@example.com"], folder="alias/bob", active=False),
+            ]
+        )
+        sieve = generate_sieve_envelope(config)
+        assert '"alice"' in sieve
+        assert '"bob"' not in sieve
+
+    def test_multi_domain(self):
+        config = self._config(
+            rules=[
+                Rule(aliases=["alice@a.com"], folder="alias/alice"),
+                Rule(aliases=["bob@b.com"], folder="alias/bob"),
+            ]
+        )
+        sieve = generate_sieve_envelope(config)
+        assert '"a.com"' in sieve
+        assert '"b.com"' in sieve
+        assert sieve.count('envelope :domain :is "to"') == 2
+
+    def test_custom_prefix(self):
+        config = self._config(
+            folder_prefix="mail",
+            rules=[Rule(aliases=["alice@example.com"], folder="mail/alice")],
+        )
+        sieve = generate_sieve_envelope(config)
+        assert 'fileinto :create "mail/${alias}"' in sieve
+
+    def test_dispatch_via_generate_sieve(self):
+        config = self._config()
+        sieve = generate_sieve(config)
+        assert '"envelope"' in sieve
+        assert '"variables"' in sieve
+
+    def test_aliases_sorted(self):
+        config = self._config(
+            rules=[
+                Rule(aliases=["zz@example.com"], folder="alias/zz"),
+                Rule(aliases=["aa@example.com"], folder="alias/aa"),
+            ]
+        )
+        sieve = generate_sieve_envelope(config)
+        aa_pos = sieve.index('"aa"')
+        zz_pos = sieve.index('"zz"')
+        assert aa_pos < zz_pos

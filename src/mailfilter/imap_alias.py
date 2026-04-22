@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import email.utils
 import imaplib
 import json
@@ -13,7 +14,10 @@ from collections.abc import Callable
 from datetime import date
 from email.parser import BytesHeaderParser
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mailfilter.config import Config
 
 _HEADER_PARSER = BytesHeaderParser()
 
@@ -389,7 +393,7 @@ def _imap_move_messages(
 
 def apply_rules_imap(
     conn: imaplib.IMAP4 | imaplib.IMAP4_SSL,
-    config: "Config",
+    config: Config,
     source_folders: list[str],
     *,
     dry_run: bool = False,
@@ -415,7 +419,6 @@ def apply_rules_imap(
         Dict mapping target folder path to number of messages moved (or
         matched when *dry_run* is ``True``).
     """
-    from mailfilter.config import Config  # local import avoids circular dep
 
     moved: dict[str, int] = defaultdict(int)
     active_rules = [r for r in config.rules if r.active]
@@ -435,7 +438,7 @@ def apply_rules_imap(
 
             search_expr = _or_imap_search(*criteria_parts)
             try:
-                typ, data = conn.uid("SEARCH", None, search_expr)  # type: ignore[call-overload]
+                typ, data = conn.uid("SEARCH", None, search_expr)  # type: ignore[arg-type,call-overload]
             except imaplib.IMAP4.error:
                 continue
             if typ != "OK" or not data or not data[0]:
@@ -449,10 +452,8 @@ def apply_rules_imap(
 
             if not dry_run:
                 if create_folders:
-                    try:
+                    with contextlib.suppress(Exception):  # folder exists or server error
                         create_imap_folder(conn, rule.folder)
-                    except Exception:
-                        pass  # folder already exists or server error; attempt move anyway
                 _imap_move_messages(conn, uids, rule.folder)
                 # Re-select the source folder after a move (EXPUNGE invalidates it).
                 conn.select(source)

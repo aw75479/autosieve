@@ -9,13 +9,15 @@ discrete stages that can be run independently or chained together.
 ```
 IMAP Inbox ──> extract ──> aliases.json ──> generate ──> .sieve ──> ManageSieve
    (scan)        (discover)        (edit/merge)     (render)    (script)    (upload)
+
+IMAP Inbox ──> apply ──> IMAP folders (retroactive rule enforcement)
 ```
 
 ## Modules
 
 ### cli.py -- Command-line interface
 
-Entry point.  Defines subcommands (`generate`, `extract`, `upload`) via
+Entry point.  Defines subcommands (`generate`, `extract`, `upload`, `apply`) via
 `argparse`.  Handles parameter resolution with priority:
 CLI flags > TOML config > interactive prompts.
 
@@ -102,8 +104,16 @@ Loads server settings from a TOML file (`mailfilter.toml`).  Sections:
 4. Render Sieve script via `sieve.py`:
    - **Header mode** (default): one `if header` block per rule.
    - **Envelope mode**: groups aliases by domain, generates compact
-     `envelope` + `variables` script with dynamic `fileinto`.
+     `address` + `variables` script with dynamic `fileinto`.
 5. Optionally upload via ManageSieve.
+
+### apply
+
+1. Load alias file (JSON) to get active rules.
+2. Connect to IMAP server.
+3. For each active rule, SEARCH source folder(s) for messages matching any alias.
+4. Move matched messages to the rule's target folder (IMAP MOVE or COPY+DELETE).
+5. Supports dry-run mode (count matches without moving) and optional folder creation.
 
 ## Design principles
 

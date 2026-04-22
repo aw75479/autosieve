@@ -324,7 +324,7 @@ class TestGenerateSieveEnvelope:
         config = self._config()
         sieve = generate_sieve_envelope(config)
         # Multiple aliases → list spans multiple lines
-        assert '"alice",\n' in sieve or '\"alice\",\n' in sieve
+        assert '"alice",\n' in sieve or '"alice",\n' in sieve
 
     def test_alias_list_inline_for_single(self):
         config = self._config(rules=[Rule(aliases=["alice@example.com"], folder="alias/alice")])
@@ -592,3 +592,90 @@ class TestGenerateSieveFallback:
         assert sieve is not None
         assert "typo@example.com" in sieve
         assert "alice@example.com" not in sieve
+
+    def test_regex_require(self):
+        """match_type 'regex' adds 'regex' to the require list (line 173)."""
+        config = self._config(
+            rules=[Rule(aliases=["typo@example.com"], folder="alias/typos")],
+            match_type="regex",
+        )
+        sieve = generate_sieve_fallback(config)
+        assert sieve is not None
+        assert '"regex"' in sieve
+
+    def test_multiple_fallback_rules_separator(self):
+        """Two fallback rules are separated by a blank line (line 183)."""
+        config = self._config(
+            rules=[
+                Rule(aliases=["typo@example.com"], folder="alias/typos"),
+                Rule(aliases=["wrong@example.com"], folder="alias/wrongs"),
+            ]
+        )
+        sieve = generate_sieve_fallback(config)
+        assert sieve is not None
+        assert "typo@example.com" in sieve
+        assert "wrong@example.com" in sieve
+        # There should be a blank line between the two rule blocks.
+        assert "\n\n" in sieve
+
+
+class TestGenerateSieveCombinedCoverage:
+    """Extra tests targeting sieve.py lines 247, 289, 294 in generate_sieve_combined."""
+
+    def _config(self, **overrides) -> Config:
+        defaults = {
+            "headers": ["To"],
+            "use_create": False,
+            "script_name": "test",
+            "explicit_keep": False,
+            "match_type": "is",
+            "generation_mode": "envelope",
+            "folder_prefix": "alias",
+            "folder_sep": "/",
+            "catch_all_folder": None,
+            "rules": [
+                Rule(aliases=["alice@example.com"], folder="alias/alice"),
+                Rule(aliases=["typo@example.com"], folder="alias/typos"),
+            ],
+        }
+        defaults.update(overrides)
+        return Config(**defaults)
+
+    def test_regex_require_in_combined(self):
+        """Fallback rules with regex mode add 'regex' to require (line 247)."""
+        config = self._config(match_type="regex")
+        sieve = generate_sieve(config)
+        assert '"regex"' in sieve
+
+    def test_multiple_fallback_rules_separator_in_combined(self):
+        """Multiple fallback rules in combined mode are separated by blank lines (line 289)."""
+        config = self._config(
+            rules=[
+                Rule(aliases=["alice@example.com"], folder="alias/alice"),
+                Rule(aliases=["typo@example.com"], folder="alias/typos"),
+                Rule(aliases=["wrong@example.com"], folder="alias/wrongs"),
+            ]
+        )
+        sieve = generate_sieve(config)
+        assert "typo@example.com" in sieve
+        assert "wrong@example.com" in sieve
+        # Two fallback rules → blank separator line between them.
+        assert "\n\n" in sieve
+
+    def test_explicit_keep_in_combined(self):
+        """explicit_keep=True appends 'keep;' in combined mode (line 294)."""
+        config = self._config(explicit_keep=True)
+        sieve = generate_sieve(config)
+        assert sieve.strip().endswith("keep;")
+
+
+class TestGroupRulesByDomainFolderPrefix:
+    """Test _group_rules_by_domain: folder that doesn't start with prefix (line 39)."""
+
+    def test_folder_without_matching_prefix_skipped(self):
+        """An alias with @ but folder starting with a different prefix is skipped."""
+        rules = [
+            Rule(aliases=["alice@example.com"], folder="inbox/alice"),
+        ]
+        grouped = _group_rules_by_domain(rules, "alias")
+        assert grouped == {}

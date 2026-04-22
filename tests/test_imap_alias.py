@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -362,9 +362,7 @@ class TestApplyRulesImap:
                         uid_str = b" ".join(uids) if uids else b""
                         return ("OK", [uid_str])
                 return ("OK", [b""])
-            elif command in ("MOVE", "COPY"):
-                return ("OK", [b"done"])
-            elif command == "STORE":
+            elif command in ("MOVE", "COPY") or command == "STORE":
                 return ("OK", [b"done"])
             return ("OK", [b""])
 
@@ -373,7 +371,7 @@ class TestApplyRulesImap:
         return conn
 
     def _make_config(self, rules):
-        from mailfilter.config import Config, Rule
+        from mailfilter.config import Config
 
         return Config(
             headers=["To"],
@@ -437,3 +435,218 @@ class TestApplyRulesImap:
         calls: list[tuple[str, int]] = []
         apply_rules_imap(conn, config, ["INBOX"], dry_run=True, progress=lambda f, c: calls.append((f, c)))
         assert ("alias.alice", 2) in calls
+
+
+class TestConnectImap:
+    """Tests for connect_imap covering all three connection_security modes (lines 55-63)."""
+
+    @patch("mailfilter.imap_alias.imaplib.IMAP4_SSL")
+    def test_ssl_mode(self, mock_ssl):
+        from mailfilter.imap_alias import connect_imap
+
+        mock_conn = MagicMock()
+        mock_ssl.return_value = mock_conn
+        result = connect_imap("host", 993, "user", "pass", "ssl")
+        mock_ssl.assert_called_once()
+        mock_conn.login.assert_called_once_with("user", "pass")
+        assert result is mock_conn
+
+    @patch("mailfilter.imap_alias.imaplib.IMAP4")
+    def test_starttls_mode(self, mock_imap4):
+        from mailfilter.imap_alias import connect_imap
+
+        mock_conn = MagicMock()
+        mock_imap4.return_value = mock_conn
+        result = connect_imap("host", 143, "user", "pass", "starttls")
+        mock_imap4.assert_called_once_with("host", 143)
+        mock_conn.starttls.assert_called_once()
+        mock_conn.login.assert_called_once_with("user", "pass")
+        assert result is mock_conn
+
+    @patch("mailfilter.imap_alias.imaplib.IMAP4")
+    def test_none_mode(self, mock_imap4):
+        from mailfilter.imap_alias import connect_imap
+
+        mock_conn = MagicMock()
+        mock_imap4.return_value = mock_conn
+        result = connect_imap("host", 143, "user", "pass", "none")
+        mock_imap4.assert_called_once_with("host", 143)
+        mock_conn.starttls.assert_not_called()
+        mock_conn.login.assert_called_once_with("user", "pass")
+        assert result is mock_conn
+
+
+class TestExtractAliasesProgressAndNonBytes:
+    """Cover extract_aliases lines 138 (non-bytes raw_headers) and 154 (progress callback)."""
+
+    def _mock_conn_with_non_bytes_item(self) -> MagicMock:
+        """Return a mock where one fetch item has a non-bytes second element."""
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"1"])
+        conn.search.return_value = ("OK", [b"1"])
+        # Tuple whose second element is NOT bytes → triggers line 138 continue.
+        fetch_data = [(b"1 (BODY[...])", "not bytes"), (b"2 (BODY[...])", b"To: a@b.com\r\n\r\n")]
+        conn.fetch.return_value = ("OK", fetch_data)
+        return conn
+
+    def test_non_bytes_raw_headers_skipped(self):
+        """A tuple item whose second element is not bytes is skipped (line 138)."""
+        conn = self._mock_conn_with_non_bytes_item()
+        result = extract_aliases(conn)
+        # The bytes item produces a@b.com; the non-bytes item is skipped.
+        assert "a@b.com" in result
+
+    def test_progress_callback_called(self):
+        """progress callback is invoked after each batch (line 154)."""
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"1"])
+        conn.search.return_value = ("OK", [b"1"])
+        conn.fetch.return_value = ("OK", [(b"1 (BODY[...])", b"To: a@b.com\r\n\r\n")])
+        calls: list[tuple[int, int]] = []
+        extract_aliases(conn, progress=lambda processed, total: calls.append((processed, total)))
+        assert len(calls) > 0
+        assert calls[0][1] == 1  # total = 1
+
+
+class TestImapMoveMessages:
+    """Tests for _imap_move_messages covering fallback paths (lines 372-387)."""
+
+    def test_empty_uids_returns_immediately(self):
+        """Empty uid list returns without any calls (line 372)."""
+
+        from mailfilter.imap_alias import _imap_move_messages
+
+        conn = MagicMock()
+        _imap_move_messages(conn, [], "target")
+        conn.uid.assert_not_called()
+
+    def test_move_extension_error_triggers_copy_fallback(self):
+        """MOVE raising IMAP4.error falls back to COPY+STORE+EXPUNGE (lines 379-387)."""
+        import imaplib
+
+        from mailfilter.imap_alias import _imap_move_messages
+
+        conn = MagicMock()
+
+        def uid_handler(cmd, *args):
+            if cmd == "MOVE":
+                raise imaplib.IMAP4.error("MOVE not supported")
+            if cmd == "COPY":
+                return ("OK", [b"copied"])
+            return ("OK", [b""])
+
+        conn.uid.side_effect = uid_handler
+        _imap_move_messages(conn, [b"1"], "target")
+        conn.expunge.assert_called_once()
+
+    def test_move_returns_no_triggers_copy_fallback(self):
+        """MOVE returning NO (not OK) falls back to COPY (lines 380-387)."""
+        from mailfilter.imap_alias import _imap_move_messages
+
+        conn = MagicMock()
+
+        def uid_handler(cmd, *args):
+            if cmd == "MOVE":
+                return ("NO", [b"not supported"])
+            if cmd == "COPY":
+                return ("OK", [b"copied"])
+            return ("OK", [b""])
+
+        conn.uid.side_effect = uid_handler
+        _imap_move_messages(conn, [b"1"], "target")
+        conn.expunge.assert_called_once()
+
+    def test_copy_failure_raises(self):
+        """COPY failure raises IMAP4.error (lines 383-385)."""
+        import imaplib
+
+        from mailfilter.imap_alias import _imap_move_messages
+
+        conn = MagicMock()
+
+        def uid_handler(cmd, *args):
+            if cmd == "MOVE":
+                raise imaplib.IMAP4.error("no MOVE")
+            if cmd == "COPY":
+                return ("NO", [b"permission denied"])
+            return ("OK", [b""])
+
+        conn.uid.side_effect = uid_handler
+        with pytest.raises(imaplib.IMAP4.error, match="COPY"):
+            _imap_move_messages(conn, [b"1"], "target")
+
+
+class TestApplyRulesImapMissingLines:
+    """Tests for apply_rules_imap covering lines 434, 439-440, 446-448, 454-455."""
+
+    def _make_config(self, rules):
+        from mailfilter.config import Config
+
+        return Config(
+            headers=["To"],
+            use_create=True,
+            script_name="test",
+            explicit_keep=False,
+            match_type="is",
+            rules=rules,
+        )
+
+    def test_empty_aliases_rule_skipped(self):
+        """Rule with no aliases produces empty criteria_parts → skipped (line 434)."""
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=[], folder="alias.empty")
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"1"])
+        moved = apply_rules_imap(conn, config, ["INBOX"])
+        assert moved == {}
+        conn.uid.assert_not_called()
+
+    def test_search_imap_error_continues(self):
+        """SEARCH raising IMAP4.error causes the rule to be skipped (lines 439-440)."""
+        import imaplib
+
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.uid.side_effect = imaplib.IMAP4.error("search failed")
+        moved = apply_rules_imap(conn, config, ["INBOX"])
+        assert moved == {}
+
+    def test_no_uids_with_progress_callback(self):
+        """Whitespace-only SEARCH result calls progress callback with 0 (lines 446-448)."""
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        # b" " is truthy (passes the not data[0] check) but split() → [] (empty uid list).
+        conn.uid.return_value = ("OK", [b" "])
+        progress_calls: list[tuple[str, int]] = []
+        apply_rules_imap(conn, config, ["INBOX"], progress=lambda f, c: progress_calls.append((f, c)))
+        assert ("alias.a", 0) in progress_calls
+
+    def test_create_folder_exception_suppressed(self):
+        """Exception in create_imap_folder is suppressed; move continues (lines 454-455)."""
+
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        # SEARCH returns one UID; MOVE succeeds.
+        conn.uid.side_effect = [
+            ("OK", [b"1"]),  # SEARCH
+            ("OK", [b""]),  # MOVE
+        ]
+        # create_imap_folder → conn.create returns a non-ALREADYEXISTS NO → raises inside create_imap_folder
+        conn.create.return_value = ("NO", [b"permission denied"])
+        # Should not raise; the exception is suppressed.
+        moved = apply_rules_imap(conn, config, ["INBOX"], create_folders=True)
+        assert moved == {"alias.a": 1}

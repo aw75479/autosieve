@@ -115,7 +115,33 @@ class TestLoadServerConfig:
 
     def test_folder_sep_configurable(self, tmp_path):
         toml = tmp_path / "cfg.toml"
-        toml.write_text("[imap]\nfolder_sep = \"/\"\n\n[managesieve]\nfolder_sep = \"/\"\n")
+        toml.write_text('[imap]\nfolder_sep = "/"\n\n[managesieve]\nfolder_sep = "/"\n')
         cfg = load_server_config(toml)
         assert cfg.imap.folder_sep == "/"
         assert cfg.managesieve.folder_sep == "/"
+
+
+class TestParseSecurityHelper:
+    def test_valid_ssl(self):
+        from mailfilter.server_config import _parse_security
+
+        assert _parse_security("ssl", "imap") == "ssl"
+
+    def test_valid_starttls(self):
+        from mailfilter.server_config import _parse_security
+
+        assert _parse_security("STARTTLS", "imap") == "starttls"
+
+    def test_valid_none(self):
+        from mailfilter.server_config import _parse_security
+
+        assert _parse_security("none", "imap") == "none"
+
+    def test_invalid_raises(self):
+        """Invalid connection_security raises ValueError (line 92 in server_config.py)."""
+        import pytest
+
+        from mailfilter.server_config import _parse_security
+
+        with pytest.raises(ValueError, match="connection_security"):
+            _parse_security("tls", "imap")

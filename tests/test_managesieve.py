@@ -349,3 +349,88 @@ class TestUploadViaManageSieve:
         )
         mock_client.check_script.assert_not_called()
         mock_client.set_active.assert_not_called()
+
+
+class TestManageSieveMissingLines:
+    """Tests covering previously uncovered lines 69-70, 87-88, 99, 113, 185, 257."""
+
+    def test_exit_exception_in_logout_suppressed(self):
+        """__exit__ suppresses exceptions during LOGOUT/close (lines 69-70)."""
+        client = ManageSieveClient.__new__(ManageSieveClient)
+        mock_sock = MagicMock()
+        client.sock = mock_sock
+        client.file = io.BytesIO()
+        # send_command raises an exception → should be caught and suppressed.
+        client.send_command = MagicMock(side_effect=Exception("socket error"))
+        client.__exit__(None, None, None)
+        mock_sock.close.assert_called_once()
+        assert client.sock is None
+
+    @patch("mailfilter.managesieve.socket.create_connection")
+    def test_connect_ssl_wraps_socket(self, mock_create):
+        """connect with connection_security='ssl' wraps the socket with TLS (lines 87-88)."""
+        mock_raw = MagicMock()
+        mock_create.return_value = mock_raw
+        mock_tls_sock = MagicMock()
+        mock_tls_file = _make_file(['"SASL" "PLAIN"', "OK"])
+        mock_tls_sock.makefile.return_value = mock_tls_file
+
+        client = ManageSieveClient("host", 993, connection_security="ssl")
+        with patch.object(client, "_tls_context") as mock_ctx:
+            mock_ctx.return_value.wrap_socket.return_value = mock_tls_sock
+            client.connect()
+        mock_ctx.return_value.wrap_socket.assert_called_once_with(mock_raw, server_hostname="host")
+        assert client.capabilities.get("SASL") == "PLAIN"
+
+    @patch("mailfilter.managesieve.socket.create_connection")
+    def test_connect_starttls_calls_starttls(self, mock_create):
+        """connect with connection_security='starttls' calls starttls() (line 99)."""
+        mock_sock = MagicMock()
+        mock_create.return_value = mock_sock
+        mock_sock.makefile.return_value = _make_file(['"SASL" "PLAIN"', '"STARTTLS"', "OK"])
+
+        client = ManageSieveClient("host", 4190, connection_security="starttls")
+        with patch.object(client, "starttls") as mock_starttls:
+            client.connect()
+        mock_starttls.assert_called_once()
+
+    def test_starttls_post_tls_failure_raises(self):
+        """Failed post-STARTTLS capability exchange raises ManageSieveError (line 113)."""
+        client = ManageSieveClient.__new__(ManageSieveClient)
+        client.host = "host"
+        client.sock = MagicMock()
+        # First read_response_block: STARTTLS OK.
+        # Second read_response_block: post-TLS capability exchange fails.
+        responses = iter([([], ("OK", "")), ([], ("NO", "capability failed"))])
+        client.send_command = MagicMock()
+        client.read_response_block = MagicMock(side_effect=lambda: next(responses))
+        with patch.object(client, "_tls_context") as mock_ctx:
+            mock_tls_sock = MagicMock()
+            mock_ctx.return_value.wrap_socket.return_value = mock_tls_sock
+            mock_tls_sock.makefile.return_value = io.BytesIO()
+            with pytest.raises(ManageSieveError, match="post-STARTTLS capability failed"):
+                client.starttls()
+
+    def test_list_scripts_malformed_line_skipped(self):
+        """list_scripts skips lines that don't match the script-name pattern (line 185)."""
+        client = ManageSieveClient.__new__(ManageSieveClient)
+        # Include a valid line and a malformed one (must not start with OK/NO/BYE).
+        client.file = _make_file(['"valid-script" ACTIVE', "* garbage data", "OK"])
+        client.send_command = MagicMock()
+        scripts = client.list_scripts()
+        # Only the valid line produces an entry.
+        assert ("valid-script", True) in scripts
+        assert len(scripts) == 1
+
+    def test_parse_capabilities_malformed_line_skipped(self):
+        """_parse_capabilities skips lines that don't match the capability pattern (line 257)."""
+        lines = [
+            '"SASL" "PLAIN"',
+            "THIS IS NOT A QUOTED CAPABILITY",
+            '"SIEVE" "fileinto"',
+        ]
+        caps = ManageSieveClient._parse_capabilities(lines)
+        assert caps.get("SASL") == "PLAIN"
+        assert caps.get("SIEVE") == "fileinto"
+        # The malformed line is silently skipped.
+        assert len(caps) == 2

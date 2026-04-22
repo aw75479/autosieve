@@ -121,7 +121,7 @@ def generate_sieve_envelope(config: Config) -> str:
             locals_ = by_template[template]
             alias_items = sorted(sieve_quote(lp) for lp in sorted(locals_))
             catch_all_folder = _catch_all_for_template(config, template)
-            parts.append(f'if address :domain :is {sieve_quote(addr_header)} {sieve_quote(domain)} {{')
+            parts.append(f"if address :domain :is {sieve_quote(addr_header)} {sieve_quote(domain)} {{")
             parts.append(f'    if address :localpart :matches {sieve_quote(addr_header)} "*" {{')
             parts.append('        set :lower "alias" "${1}";')
             if len(alias_items) == 1:
@@ -262,7 +262,7 @@ def generate_sieve_combined(config: Config) -> str:
             locals_ = by_template[template]
             alias_items = sorted(sieve_quote(lp) for lp in sorted(locals_))
             catch_all_folder = _catch_all_for_template(config, template)
-            parts.append(f'if address :domain :is {sieve_quote(addr_header)} {sieve_quote(domain)} {{')
+            parts.append(f"if address :domain :is {sieve_quote(addr_header)} {sieve_quote(domain)} {{")
             parts.append(f'    if address :localpart :matches {sieve_quote(addr_header)} "*" {{')
             parts.append('        set :lower "alias" "${1}";')
             if len(alias_items) == 1:

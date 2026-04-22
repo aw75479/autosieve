@@ -405,3 +405,18 @@ class TestGenerationMode:
         p.write_text(json.dumps(data))
         config = load_alias_config(p)
         assert config.folder_prefix == "alias"
+
+    def test_folder_sep_single_char(self, tmp_path):
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "folder_sep": "/"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        config = load_alias_config(p)
+        assert config.folder_sep == "/"
+
+    def test_folder_sep_multi_char_raises(self, tmp_path):
+        """folder_sep must be exactly one character (line 193 in config.py)."""
+        data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "folder_sep": "//"}
+        p = tmp_path / "cfg.json"
+        p.write_text(json.dumps(data))
+        with pytest.raises(ConfigError, match="single character"):
+            load_alias_config(p)

@@ -19,4 +19,13 @@ venv/
 # Runtime config and output (user copies from .template)
 mailfilter.toml
 mailfilter.sieve
+aliasfilter.sieve
 aliases.json
+
+# Test coverage artefacts
+.coverage
+htmlcov/
+coverage.xml
+
+# Generated API docs (rebuild with: poe doc)
+docs/api/

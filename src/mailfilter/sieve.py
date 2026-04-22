@@ -9,17 +9,23 @@ from mailfilter.config import Config, Rule
 
 
 def sieve_quote(value: str) -> str:
+    """Wrap *value* in Sieve double-quoted string syntax, escaping backslash and double-quote."""
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _group_rules_by_domain(rules: list[Rule], folder_prefix: str) -> dict[str, list[str]]:
-    """Group active rules by domain, returning {domain: [local_part, ...]}.
+def _group_rules_by_domain(rules: list[Rule], folder_prefix: str, sep: str = "/") -> dict[str, dict[str, list[str]]]:
+    """Group active rules by domain and template.
 
-    Only includes rules whose folder matches ``folder_prefix/{local_part}``
-    (i.e. rules that fit the envelope variable-routing pattern).
+    Returns ``{domain: {folder_template: [local_part, ...]}}`` where
+    ``folder_template`` contains ``${alias}`` as the final path segment.
+
+    Includes rules whose folder matches one of these forms:
+    - ``<folder_prefix><sep><local-part>``
+    - ``<folder_prefix><sep><subpath...><sep><local-part>``
     """
-    by_domain: dict[str, list[str]] = defaultdict(list)
-    seen: dict[str, set[str]] = defaultdict(set)
+    by_domain: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    seen: dict[tuple[str, str], set[str]] = defaultdict(set)
+    prefix = f"{folder_prefix}{sep}"
     for rule in rules:
         if not rule.active:
             continue
@@ -28,46 +34,112 @@ def _group_rules_by_domain(rules: list[Rule], folder_prefix: str) -> dict[str, l
                 continue
             local, domain = alias.rsplit("@", 1)
             local_lower = local.lower()
-            expected_folder = f"{folder_prefix}/{local_lower}"
-            if rule.folder != expected_folder:
+            folder = rule.folder.strip()
+            if not folder.startswith(prefix):
                 continue
-            if local_lower not in seen[domain]:
-                by_domain[domain].append(local_lower)
-                seen[domain].add(local_lower)
-    return dict(by_domain)
+            parts = folder.split(sep)
+            if not parts or parts[-1].lower() != local_lower:
+                continue
+
+            template = sep.join([*parts[:-1], "${alias}"])
+            key = (domain, template)
+            if local_lower not in seen[key]:
+                by_domain[domain][template].append(local_lower)
+                seen[key].add(local_lower)
+
+    return {domain: dict(by_template) for domain, by_template in by_domain.items()}
+
+
+def partition_envelope_rules(rules: list[Rule], folder_prefix: str, sep: str = "/") -> tuple[list[Rule], list[Rule]]:
+    """Split active rules into (envelope-compatible, fallback) pairs.
+
+    A rule is *envelope-compatible* when every alias it carries has a local-part
+    that exactly matches the final segment of the rule's folder path.  Rules
+    whose folder name diverges from the local-part (e.g. a typo) cannot be
+    expressed in the compact envelope+variables script and must instead be
+    matched via explicit header checks.
+
+    Args:
+        rules: The full list of :class:`~mailfilter.config.Rule` objects.
+        folder_prefix: The leading path segment shared by all alias folders
+            (e.g. ``"alias"``).
+        sep: Folder hierarchy separator (default ``"/"``).
+
+    Returns:
+        A ``(envelope, fallback)`` tuple.  Both lists contain only active rules.
+    """
+    prefix = f"{folder_prefix}{sep}"
+    envelope: list[Rule] = []
+    fallback: list[Rule] = []
+    for rule in rules:
+        if not rule.active:
+            continue
+        folder = rule.folder.strip()
+        last = folder.split(sep)[-1].lower()
+        fits = folder.startswith(prefix) and bool(rule.aliases) and all("@" in a and a.rsplit("@", 1)[0].lower() == last for a in rule.aliases)
+        (envelope if fits else fallback).append(rule)
+    return envelope, fallback
+
+
+def _catch_all_for_template(config: Config, template: str) -> str:
+    """Choose fallback target folder for a template block."""
+    sep = config.folder_sep
+    base_template = f"{config.folder_prefix}{sep}${{alias}}"
+    if template == base_template and config.catch_all_folder:
+        return config.catch_all_folder
+    parent = template.rsplit(sep, 1)[0]
+    return f"{parent}{sep}_other"
 
 
 def generate_sieve_envelope(config: Config) -> str:
-    """Generate a compact Sieve script using envelope + variables extensions."""
+    """Generate a compact Sieve script using the envelope + variables extensions.
+
+    Only rules whose folder basename exactly matches the alias local-part are
+    emitted.  Rules that don't fit this pattern are silently excluded here;
+    call :func:`generate_sieve_fallback` to obtain a header-based script for
+    those rules.
+    """
     requires = ["fileinto"]
     if config.use_create:
         requires.append("mailbox")
-    requires.extend(["envelope", "variables"])
+    requires.append("variables")
 
-    grouped = _group_rules_by_domain([r for r in config.rules if r.active], config.folder_prefix)
+    envelope_rules, _ = partition_envelope_rules(config.rules, config.folder_prefix, config.folder_sep)
+    grouped = _group_rules_by_domain(envelope_rules, config.folder_prefix, config.folder_sep)
 
     parts: list[str] = [
-        "# Generated by mailfilter",
+        "# Generated by autosieve",
         f"require [{', '.join(sieve_quote(x) for x in requires)}];",
         "",
     ]
 
-    for domain, locals_ in grouped.items():
-        alias_list = ", ".join(sieve_quote(lp) for lp in sorted(locals_))
-        create_flag = ":create " if config.use_create else ""
-        parts.append(f'if envelope :domain :is "to" {sieve_quote(domain)} {{')
-        parts.append('    if envelope :localpart :matches "to" "*" {')
-        parts.append('        set :lower "alias" "${1}";')
-        parts.append(f'        if string :is "${{alias}}" [{alias_list}] {{')
-        parts.append(f"            fileinto {create_flag}{sieve_quote(config.folder_prefix + '/${alias}')};")
-        parts.append("            stop;")
-        parts.append("        }")
-        if config.catch_all_folder:
-            parts.append(f"        fileinto {create_flag}{sieve_quote(config.catch_all_folder)};")
+    create_flag = ":create " if config.use_create else ""
+    addr_header = "To"
+    for domain in sorted(grouped):
+        by_template = grouped[domain]
+        for template in sorted(by_template):
+            locals_ = by_template[template]
+            alias_items = sorted(sieve_quote(lp) for lp in sorted(locals_))
+            catch_all_folder = _catch_all_for_template(config, template)
+            parts.append(f'if address :domain :is {sieve_quote(addr_header)} {sieve_quote(domain)} {{')
+            parts.append(f'    if address :localpart :matches {sieve_quote(addr_header)} "*" {{')
+            parts.append('        set :lower "alias" "${1}";')
+            if len(alias_items) == 1:
+                parts.append(f'        if string :is "${{alias}}" [{alias_items[0]}] {{')
+            else:
+                parts.append('        if string :is "${alias}" [')
+                for i, item in enumerate(alias_items):
+                    comma = "," if i < len(alias_items) - 1 else ""
+                    parts.append(f"            {item}{comma}")
+                parts.append("        ] {")
+            parts.append(f"            fileinto {create_flag}{sieve_quote(template)};")
+            parts.append("            stop;")
+            parts.append("        }")
+            parts.append(f"        fileinto {create_flag}{sieve_quote(catch_all_folder)};")
             parts.append("        stop;")
-        parts.append("    }")
-        parts.append("}")
-        parts.append("")
+            parts.append("    }")
+            parts.append("}")
+            parts.append("")
 
     if config.explicit_keep:
         parts.append("keep;")
@@ -75,7 +147,60 @@ def generate_sieve_envelope(config: Config) -> str:
     return "\n".join(parts).strip() + "\n"
 
 
+def generate_sieve_fallback(config: Config) -> str | None:
+    """Generate a header-based Sieve script for rules that don't fit envelope routing.
+
+    Returns ``None`` when every active rule is envelope-compatible (i.e. there
+    is nothing to put in a fallback script).  When a non-``None`` value is
+    returned it is a complete, standalone ``.sieve`` script using ``header``
+    matching, suitable for upload as a separate script or for inclusion by the
+    server's master script.
+
+    Args:
+        config: Loaded alias configuration.
+
+    Returns:
+        A Sieve script string, or ``None`` if there are no fallback rules.
+    """
+    _, fallback_rules = partition_envelope_rules(config.rules, config.folder_prefix, config.folder_sep)
+    if not fallback_rules:
+        return None
+
+    requires = ["fileinto"]
+    if config.use_create:
+        requires.append("mailbox")
+    if config.match_type == "regex":
+        requires.append("regex")
+
+    parts: list[str] = [
+        "# Generated by autosieve -- non-standard folder mappings",
+        f"require [{', '.join(sieve_quote(x) for x in requires)}];",
+        "",
+    ]
+    for idx, rule in enumerate(fallback_rules):
+        parts.append(generate_rule_block(rule, config.headers, config.match_type, config.use_create))
+        if idx != len(fallback_rules) - 1:
+            parts.append("")
+
+    if config.explicit_keep:
+        parts.append("")
+        parts.append("keep;")
+
+    return "\n".join(parts).strip() + "\n"
+
+
 def generate_rule_block(rule: Rule, headers: Sequence[str], match_type: str, use_create: bool) -> str:
+    """Build a single Sieve ``if`` block for *rule* using header matching.
+
+    Args:
+        rule: The alias rule to emit.
+        headers: Default headers to match against (overridden by rule.headers).
+        match_type: Sieve match type, e.g. ``"is"`` or ``"regex"``.
+        use_create: Whether to add the ``:create`` flag (requires ``mailbox``).
+
+    Returns:
+        A multi-line string containing the ``if`` block (without a trailing newline).
+    """
     effective_headers = rule.headers if rule.headers else headers
     tests: list[str] = []
     for alias in rule.aliases:
@@ -96,9 +221,100 @@ def generate_rule_block(rule: Rule, headers: Sequence[str], match_type: str, use
     return "\n".join(lines)
 
 
+def generate_sieve_combined(config: Config) -> str:
+    """Generate a single Sieve script combining envelope routing and header fallbacks.
+
+    Envelope-compatible rules (folder basename == alias local-part) are emitted
+    as compact ``envelope + variables`` blocks.  All remaining active rules are
+    appended as explicit ``header`` match blocks.  The result is a single,
+    self-contained ``.sieve`` script that replaces the previously separate
+    ``-custom.sieve`` companion file.
+
+    Args:
+        config: Loaded alias configuration.
+
+    Returns:
+        A complete Sieve script string.
+    """
+    sep = config.folder_sep
+    requires = ["fileinto"]
+    if config.use_create:
+        requires.append("mailbox")
+    requires.append("variables")
+
+    envelope_rules, fallback_rules = partition_envelope_rules(config.rules, config.folder_prefix, sep)
+    if fallback_rules and config.match_type == "regex":
+        requires.append("regex")
+
+    grouped = _group_rules_by_domain(envelope_rules, config.folder_prefix, sep)
+
+    parts: list[str] = [
+        "# Generated by autosieve",
+        f"require [{', '.join(sieve_quote(x) for x in requires)}];",
+        "",
+    ]
+
+    create_flag = ":create " if config.use_create else ""
+    addr_header = "To"
+    for domain in sorted(grouped):
+        by_template = grouped[domain]
+        for template in sorted(by_template):
+            locals_ = by_template[template]
+            alias_items = sorted(sieve_quote(lp) for lp in sorted(locals_))
+            catch_all_folder = _catch_all_for_template(config, template)
+            parts.append(f'if address :domain :is {sieve_quote(addr_header)} {sieve_quote(domain)} {{')
+            parts.append(f'    if address :localpart :matches {sieve_quote(addr_header)} "*" {{')
+            parts.append('        set :lower "alias" "${1}";')
+            if len(alias_items) == 1:
+                parts.append(f'        if string :is "${{alias}}" [{alias_items[0]}] {{')
+            else:
+                parts.append('        if string :is "${alias}" [')
+                for i, item in enumerate(alias_items):
+                    comma = "," if i < len(alias_items) - 1 else ""
+                    parts.append(f"            {item}{comma}")
+                parts.append("        ] {")
+            parts.append(f"            fileinto {create_flag}{sieve_quote(template)};")
+            parts.append("            stop;")
+            parts.append("        }")
+            parts.append(f"        fileinto {create_flag}{sieve_quote(catch_all_folder)};")
+            parts.append("        stop;")
+            parts.append("    }")
+            parts.append("}")
+            parts.append("")
+
+    if fallback_rules:
+        parts.append("# --- custom folder mappings ---")
+        for idx, rule in enumerate(fallback_rules):
+            if idx > 0:
+                parts.append("")
+            parts.append(generate_rule_block(rule, config.headers, config.match_type, config.use_create))
+        parts.append("")
+
+    if config.explicit_keep:
+        parts.append("keep;")
+
+    return "\n".join(parts).strip() + "\n"
+
+
 def generate_sieve(config: Config) -> str:
+    """Generate a complete Sieve script from *config*.
+
+    Dispatches to the appropriate generator based on
+    :attr:`~mailfilter.config.Config.generation_mode`:
+
+    - ``"envelope"`` — uses :func:`generate_sieve_combined` which emits both
+      the compact envelope+variables block and any fallback header rules in a
+      single file.
+    - ``"header"`` — uses per-alias ``if header`` blocks.
+
+    Args:
+        config: Loaded alias configuration.
+
+    Returns:
+        A complete Sieve script string.
+    """
     if config.generation_mode == "envelope":
-        return generate_sieve_envelope(config)
+        return generate_sieve_combined(config)
 
     requires = ["fileinto"]
     if config.use_create:
@@ -109,7 +325,7 @@ def generate_sieve(config: Config) -> str:
     active_rules = [r for r in config.rules if r.active]
 
     parts = [
-        "# Generated by mailfilter",
+        "# Generated by autosieve",
         f"require [{', '.join(sieve_quote(x) for x in requires)}];",
         "",
     ]

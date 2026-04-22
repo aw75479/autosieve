@@ -7,7 +7,7 @@ filtering.  It follows a **pipeline architecture**: data flows through
 discrete stages that can be run independently or chained together.
 
 ```
-IMAP Inbox ──> extract-aliases ──> aliases.json ──> generate ──> .sieve ──> ManageSieve
+IMAP Inbox ──> extract ──> aliases.json ──> generate ──> .sieve ──> ManageSieve
    (scan)        (discover)        (edit/merge)     (render)    (script)    (upload)
 ```
 
@@ -15,7 +15,7 @@ IMAP Inbox ──> extract-aliases ──> aliases.json ──> generate ──>
 
 ### cli.py -- Command-line interface
 
-Entry point.  Defines two subcommands (`generate`, `extract-aliases`) via
+Entry point.  Defines subcommands (`generate`, `extract`, `upload`) via
 `argparse`.  Handles parameter resolution with priority:
 CLI flags > TOML config > interactive prompts.
 
@@ -64,8 +64,7 @@ Implements a subset of the ManageSieve protocol (RFC 5804):
 ### server_config.py -- TOML configuration
 
 Loads server settings from a TOML file (`mailfilter.toml`).  Sections:
-`[imap]`, `[managesieve]`, `[filenames]`.  Legacy section names `[alias]`
-and `[output]` are read for backward compatibility.
+`[imap]`, `[managesieve]`, `[filenames]`.
 
 ## Standards reference
 
@@ -80,7 +79,7 @@ and `[output]` are read for backward compatibility.
 
 ## Data flow
 
-### extract-aliases
+### extract
 
 1. Connect to IMAP server (SSL/STARTTLS/plain).
 2. SELECT folder (default: INBOX).

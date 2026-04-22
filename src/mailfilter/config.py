@@ -16,6 +16,8 @@ class ConfigError(ValueError):
 
 @dataclass
 class Rule:
+    """A single mail-filtering rule: one or more alias addresses mapped to a folder."""
+
     aliases: list[str]
     folder: str
     comment: str | None = None
@@ -25,6 +27,8 @@ class Rule:
 
 @dataclass
 class Config:
+    """Loaded alias configuration ready for Sieve script generation."""
+
     headers: list[str]
     use_create: bool
     script_name: str
@@ -34,9 +38,11 @@ class Config:
     generation_mode: str = "header"
     catch_all_folder: str | None = None
     folder_prefix: str = "alias"
+    folder_sep: str = "."
 
 
 def load_json(path: Path) -> Any:
+    """Read *path* as UTF-8 JSON and return the parsed object."""
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -84,6 +90,8 @@ def _merge_rules_by_folder(rules: list[Rule]) -> list[Rule]:
 
 
 def _normalize_rules(raw_rules: Any) -> list[Rule]:
+    """Parse the raw JSON ``rules`` value into a normalised :class:`Rule` list."""
+
     rules: list[Rule] = []
 
     if isinstance(raw_rules, dict):
@@ -143,7 +151,18 @@ def _normalize_rules(raw_rules: Any) -> list[Rule]:
     return _merge_rules_by_folder(rules)
 
 
-def load_config(path: Path) -> Config:
+def load_alias_config(path: Path) -> Config:
+    """Load and validate an alias JSON file and return a :class:`Config` object.
+
+    Args:
+        path: Path to the JSON alias file produced by the ``extract`` subcommand.
+
+    Returns:
+        A validated :class:`Config` instance.
+
+    Raises:
+        :class:`ConfigError`: If the JSON is structurally invalid.
+    """
     raw = load_json(path)
     if not isinstance(raw, dict):
         raise ConfigError("top-level JSON must be an object")
@@ -169,6 +188,9 @@ def load_config(path: Path) -> Config:
         catch_all_folder = catch_all_folder_raw.strip()
 
     folder_prefix = str(raw.get("folder_prefix", "alias")).strip()
+    folder_sep = str(raw.get("folder_sep", "."))
+    if len(folder_sep) != 1:
+        raise ConfigError("'folder_sep' must be a single character (e.g. '/' or '.')")
 
     script_name = str(raw.get("script_name", "alias-router")).strip()
     if not script_name:
@@ -188,4 +210,5 @@ def load_config(path: Path) -> Config:
         generation_mode=generation_mode,
         catch_all_folder=catch_all_folder,
         folder_prefix=folder_prefix,
+        folder_sep=folder_sep,
     )

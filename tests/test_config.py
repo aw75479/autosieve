@@ -12,7 +12,7 @@ from mailfilter.config import (
     Rule,
     _merge_rules_by_folder,
     _normalize_rules,
-    load_config,
+    load_alias_config,
 )
 
 
@@ -64,7 +64,7 @@ class TestNormalizeRules:
 
 class TestLoadConfig:
     def test_load_sample(self, sample_config_path):
-        config = load_config(sample_config_path)
+        config = load_alias_config(sample_config_path)
         assert isinstance(config, Config)
         assert config.script_name == "alias-router"
         assert config.use_create is True
@@ -75,7 +75,7 @@ class TestLoadConfig:
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}]}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.headers == ["X-Original-To", "Delivered-To"]
         assert config.use_create is False
         assert config.explicit_keep is False
@@ -87,19 +87,19 @@ class TestLoadConfig:
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
         with pytest.raises(ConfigError, match="match_type"):
-            load_config(p)
+            load_alias_config(p)
 
     def test_missing_rules(self, tmp_path):
         p = tmp_path / "cfg.json"
         p.write_text("{}")
         with pytest.raises(ConfigError, match="missing 'rules'"):
-            load_config(p)
+            load_alias_config(p)
 
     def test_invalid_json(self, tmp_path):
         p = tmp_path / "cfg.json"
         p.write_text("not json")
         with pytest.raises(json.JSONDecodeError):
-            load_config(p)
+            load_alias_config(p)
 
     def test_contains_match_type(self, tmp_path):
         data = {
@@ -108,7 +108,7 @@ class TestLoadConfig:
         }
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.match_type == "contains"
 
 
@@ -222,7 +222,7 @@ class TestMergeRulesByFolder:
         }
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert len(config.rules) == 1
         assert config.rules[0].folder == "Work"
         assert set(config.rules[0].aliases) == {"a@b.com", "c@b.com"}
@@ -252,7 +252,7 @@ class TestMergeRulesByFolder:
         }
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.rules[0].headers == ["X-Original-To"]
 
 
@@ -266,7 +266,7 @@ class TestActiveField:
         data = {"rules": [{"alias": "a@b.com", "folder": "F", "active": False}]}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.rules[0].active is False
 
     def test_merge_inactive_propagates(self):
@@ -288,14 +288,14 @@ class TestRegexMatchType:
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "match_type": "regex"}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.match_type == "regex"
 
     def test_matches_match_type(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "match_type": "matches"}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.match_type == "matches"
 
 
@@ -323,21 +323,21 @@ class TestEdgeCases:
         p = tmp_path / "cfg.json"
         p.write_text("[]")
         with pytest.raises(ConfigError, match="top-level"):
-            load_config(p)
+            load_alias_config(p)
 
     def test_invalid_headers_raises(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "headers": []}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
         with pytest.raises(ConfigError, match="headers"):
-            load_config(p)
+            load_alias_config(p)
 
     def test_empty_script_name_raises(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "script_name": ""}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
         with pytest.raises(ConfigError, match="script_name"):
-            load_config(p)
+            load_alias_config(p)
 
     def test_dict_rule_non_string_raises(self):
         with pytest.raises(ConfigError, match="string alias"):
@@ -354,14 +354,14 @@ class TestGenerationMode:
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}]}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.generation_mode == "header"
 
     def test_envelope(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "generation_mode": "envelope"}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.generation_mode == "envelope"
 
     def test_invalid_raises(self, tmp_path):
@@ -369,39 +369,39 @@ class TestGenerationMode:
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
         with pytest.raises(ConfigError, match="generation_mode"):
-            load_config(p)
+            load_alias_config(p)
 
     def test_catch_all_folder(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "catch_all_folder": "alias/_other"}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.catch_all_folder == "alias/_other"
 
     def test_catch_all_folder_default_none(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}]}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.catch_all_folder is None
 
     def test_catch_all_folder_empty_string_is_none(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "catch_all_folder": "  "}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.catch_all_folder is None
 
     def test_folder_prefix(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}], "folder_prefix": "mail"}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.folder_prefix == "mail"
 
     def test_folder_prefix_default(self, tmp_path):
         data = {"rules": [{"alias": "a@b.com", "folder": "F"}]}
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(data))
-        config = load_config(p)
+        config = load_alias_config(p)
         assert config.folder_prefix == "alias"

@@ -106,10 +106,10 @@ class TestCLIGenerate:
         assert "fileinto" in out
 
     def test_generate_dry_run_no_changes(self, sample_config_path, tmp_path, capsys):
-        from mailfilter.config import load_config
+        from mailfilter.config import load_alias_config
         from mailfilter.sieve import generate_sieve
 
-        config = load_config(sample_config_path)
+        config = load_alias_config(sample_config_path)
         existing = tmp_path / "out.sieve"
         existing.write_text(generate_sieve(config), encoding="utf-8", newline="\n")
         rc = main(["generate", str(sample_config_path), "--dry-run", "--output", str(existing)])
@@ -159,6 +159,76 @@ class TestCLIGenerate:
         assert rc == 0
         out = capsys.readouterr().out
         assert "fileinto" in out
+
+    def test_generate_alias_file_defaults_to_config(self, tmp_path, capsys):
+        """When alias_file is omitted, the path from filenames.alias_file is used."""
+        alias_file = tmp_path / "my.json"
+        alias_file.write_text(
+            json.dumps(
+                {
+                    "rules": [{"alias": "a@b.com", "folder": "F"}],
+                    "headers": ["To"],
+                }
+            )
+        )
+        toml = tmp_path / "mailfilter.toml"
+        toml.write_text(f'[filenames]\nalias_file = "{alias_file}"\nsieve_file = "/dev/null"\n')
+        rc = main(["generate", "--config", str(toml), "--stdout"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "fileinto" in out
+
+    def test_generate_writes_fallback_for_mismatched_rules(self, tmp_path, capsys):
+        """Envelope mode: mismatched rules are included as header rules in the combined output."""
+        alias_file = tmp_path / "aliases.json"
+        alias_file.write_text(
+            json.dumps(
+                {
+                    "generation_mode": "envelope",
+                    "folder_prefix": "alias",
+                    "folder_sep": ".",
+                    "catch_all_folder": "alias._other",
+                    "rules": [
+                        {"alias": "alice@example.com", "folder": "alias.alice"},
+                        {"alias": "typo@example.com", "folder": "alias.typos"},
+                    ],
+                    "headers": ["To"],
+                }
+            )
+        )
+        sieve_out = tmp_path / "mailfilter.sieve"
+        rc = main(["generate", str(alias_file), "--output", str(sieve_out)])
+        assert rc == 0
+        combined_text = sieve_out.read_text()
+        # Mismatched rule is included as a header rule in the combined file.
+        assert "typo@example.com" in combined_text
+        # Envelope-compatible rule is expressed as a compact address block.
+        assert '"alice"' in combined_text
+        # No separate custom file is written.
+        custom_path = tmp_path / "mailfilter-custom.sieve"
+        assert not custom_path.exists()
+
+    def test_generate_no_fallback_when_all_rules_match(self, tmp_path, capsys):
+        """When all rules fit the envelope pattern no extra file is written."""
+        alias_file = tmp_path / "aliases.json"
+        alias_file.write_text(
+            json.dumps(
+                {
+                    "generation_mode": "envelope",
+                    "folder_prefix": "alias",
+                    "folder_sep": ".",
+                    "catch_all_folder": "alias._other",
+                    "rules": [{"alias": "alice@example.com", "folder": "alias.alice"}],
+                    "headers": ["To"],
+                }
+            )
+        )
+        sieve_out = tmp_path / "mailfilter.sieve"
+        rc = main(["generate", str(alias_file), "--output", str(sieve_out)])
+        assert rc == 0
+        # No separate custom file is written.
+        custom_path = tmp_path / "mailfilter-custom.sieve"
+        assert not custom_path.exists()
 
 
 class TestCLINoCommand:
@@ -241,10 +311,10 @@ class TestCLIUpload:
         assert rc == 0
 
 
-class TestCLIExtractAliases:
+class TestCLIExtract:
     def test_help_doesnt_crash(self):
         with pytest.raises(SystemExit) as exc_info:
-            main(["extract-aliases", "--help"])
+            main(["extract", "--help"])
         assert exc_info.value.code == 0
 
     @patch("mailfilter.cli.connect_imap")
@@ -256,7 +326,7 @@ class TestCLIExtractAliases:
         out_file = tmp_path / "aliases.json"
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 str(out_file),
                 "--user",
@@ -273,6 +343,7 @@ class TestCLIExtractAliases:
         assert out_file.exists()
         data = json.loads(out_file.read_text())
         assert "rules" in data
+        assert data["generation_mode"] == "envelope"
 
     @patch("mailfilter.cli.connect_imap")
     @patch("mailfilter.cli.extract_aliases")
@@ -281,7 +352,7 @@ class TestCLIExtractAliases:
         mock_extract.return_value = {}
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 "--user",
                 "u",
@@ -298,6 +369,97 @@ class TestCLIExtractAliases:
 
     @patch("mailfilter.cli.connect_imap")
     @patch("mailfilter.cli.extract_aliases")
+    def test_extract_reports_no_new_aliases(self, mock_extract, mock_conn, tmp_path, capsys):
+        mock_conn.return_value = MagicMock()
+        existing = tmp_path / "aliases.json"
+        existing.write_text(
+            json.dumps(
+                {
+                    "generation_mode": "envelope",
+                    "rules": [{"alias": "a@test.com", "folder": "alias/a"}],
+                }
+            )
+        )
+        mock_extract.return_value = {"a@test.com": {"To"}}
+        rc = main(
+            [
+                "extract",
+                "mail.test",
+                str(existing),
+                "--user",
+                "u",
+                "--domain",
+                "test.com",
+                "--password",
+                "pw",
+            ]
+        )
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "No new aliases to add" in err
+
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.extract_aliases")
+    def test_extract_verbose_lists_aliases(self, mock_extract, mock_conn, tmp_path, capsys):
+        mock_conn.return_value = MagicMock()
+        mock_extract.return_value = {"a@test.com": {"To"}, "b@test.com": set()}
+        rc = main(
+            [
+                "extract",
+                "mail.test",
+                "--user",
+                "u",
+                "--domain",
+                "test.com",
+                "--password",
+                "pw",
+                "--verbose",
+                "--stdout",
+            ]
+        )
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "found: a@test.com [To]" in err
+        assert "found: b@test.com [(received-only)]" in err
+
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.extract_aliases")
+    def test_extract_then_generate_envelope_e2e(self, mock_extract, mock_conn, tmp_path, capsys):
+        mock_conn.return_value = MagicMock()
+        mock_extract.return_value = {
+            "aicamp@a.wege.eu": {"To"},
+            "aws@a.wege.eu": {"To"},
+            "apple@a.wege.eu": {"To"},
+        }
+        alias_file = tmp_path / "aliases.json"
+        rc_extract = main(
+            [
+                "extract",
+                "mail.test",
+                str(alias_file),
+                "--user",
+                "u",
+                "--domain",
+                "a.wege.eu",
+                "--password",
+                "pw",
+            ]
+        )
+        assert rc_extract == 0
+
+        rc_generate = main(["generate", str(alias_file), "--stdout"])
+        assert rc_generate == 0
+        out = capsys.readouterr().out
+        assert 'require ["fileinto", "variables"];' in out
+        assert 'address :domain :is "To" "a.wege.eu"' in out
+        assert '"aicamp"' in out
+        assert '"apple"' in out
+        assert '"aws"' in out
+        assert 'fileinto "alias.${alias}";' in out
+        assert 'fileinto "alias._other";' in out
+
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.extract_aliases")
     def test_extract_multi_folder(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.side_effect = [
@@ -306,7 +468,7 @@ class TestCLIExtractAliases:
         ]
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 "--user",
                 "u",
@@ -332,7 +494,7 @@ class TestCLIExtractAliases:
         mock_extract.return_value = {"a@test.com": {"To"}}
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 "--user",
                 "u",
@@ -358,7 +520,7 @@ class TestCLIExtractAliases:
         existing = tmp_path / "aliases.json"
         rc1 = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 str(existing),
                 "--user",
@@ -377,7 +539,7 @@ class TestCLIExtractAliases:
         mock_extract.return_value = {"a@test.com": {"To"}}
         rc2 = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 str(existing),
                 "--user",
@@ -396,7 +558,7 @@ class TestCLIExtractAliases:
         mock_conn.side_effect = Exception("timeout")
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 "--user",
                 "u",
@@ -418,7 +580,7 @@ class TestCLIExtractAliases:
         mock_extract.side_effect = Exception("IMAP error")
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 "--user",
                 "u",
@@ -436,7 +598,7 @@ class TestCLIExtractAliases:
     def test_extract_bad_toml_config(self, tmp_path, capsys):
         bad_toml = tmp_path / "bad.toml"
         bad_toml.write_text("invalid toml {{{{")
-        rc = main(["extract-aliases", "--config", str(bad_toml), "--stdout"])
+        rc = main(["extract", "--config", str(bad_toml), "--stdout"])
         assert rc == 2
         err = capsys.readouterr().err
         assert "Config error" in err
@@ -448,11 +610,11 @@ class TestCLIExtractAliases:
         # First call: create an alias file.
         mock_extract.return_value = {"a@co.com": {"To"}}
         existing = tmp_path / "aliases.json"
-        rc1 = main(["extract-aliases", "mail.test", str(existing), "--user", "u", "--domain", "co.com", "--password", "pw"])
+        rc1 = main(["extract", "mail.test", str(existing), "--user", "u", "--domain", "co.com", "--password", "pw"])
         assert rc1 == 0
         # Second call: different aliases, dry-run should show diff.
         mock_extract.return_value = {"b@co.com": {"To"}}
-        rc2 = main(["extract-aliases", "mail.test", str(existing), "--user", "u", "--domain", "co.com", "--password", "pw", "--dry-run"])
+        rc2 = main(["extract", "mail.test", str(existing), "--user", "u", "--domain", "co.com", "--password", "pw", "--dry-run"])
         assert rc2 == 0
         out = capsys.readouterr().out
         assert "---" in out  # unified diff header
@@ -464,7 +626,7 @@ class TestCLIExtractAliases:
         mock_extract.return_value = {"a@co.com": {"To"}}
         toml = tmp_path / "mailfilter.toml"
         toml.write_text('[imap]\nhost = "mail.co"\nuser = "u"\ndomain = "co.com"\npassword = "pw"\n')
-        rc = main(["extract-aliases", "--config", str(toml), "--stdout"])
+        rc = main(["extract", "--config", str(toml), "--stdout"])
         assert rc == 0
 
     @patch("mailfilter.cli.connect_imap")
@@ -476,7 +638,7 @@ class TestCLIExtractAliases:
         existing.write_text(json.dumps({"rules": [], "last_fetched": "2025-01-01"}))
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 str(existing),
                 "--user",
@@ -500,7 +662,7 @@ class TestCLIExtractAliases:
         existing.write_text(json.dumps({"rules": [], "last_fetched": "2025-01-01"}))
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 str(existing),
                 "--user",
@@ -523,7 +685,7 @@ class TestCLIExtractAliases:
         mock_extract.return_value = {"a@co.com": {"To"}}
         rc = main(
             [
-                "extract-aliases",
+                "extract",
                 "mail.test",
                 "--user",
                 "u",
@@ -555,3 +717,70 @@ class TestPromptAndParseDate:
         assert result.year == 2025
         assert result.month == 6
         assert result.day == 15
+
+
+class TestCLIUploadCommand:
+    @patch("mailfilter.cli.upload_via_managesieve")
+    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    def test_upload_script_success(self, mock_pw, mock_upload, tmp_path, capsys):
+        script = tmp_path / "mailfilter.sieve"
+        script.write_text('require ["fileinto"];\n')
+        mock_upload.return_value = [("mailfilter", True)]
+        rc = main(["upload", str(script), "--host", "mail.test", "--username", "u", "--password", "pw"])
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "ManageSieve upload complete" in err
+
+    def test_upload_missing_script(self, tmp_path, capsys):
+        missing = tmp_path / "missing.sieve"
+        rc = main(["upload", str(missing), "--host", "mail.test", "--username", "u", "--password", "pw"])
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "Script file not found" in err
+
+
+class TestCLIApplyCommand:
+    @patch("mailfilter.cli.apply_rules_imap", return_value={"alias.alice": 3})
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    def test_apply_dry_run(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
+        mock_conn.return_value.__enter__ = lambda s: s
+        mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+        rc = main(
+            [
+                "apply",
+                str(sample_config_path),
+                "--host", "mail.test",
+                "--user", "u",
+                "--password", "pw",
+                "--dry-run",
+            ]
+        )
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "Would move" in err
+
+    @patch("mailfilter.cli.apply_rules_imap", return_value={})
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    def test_apply_no_matches(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
+        mock_conn.return_value.__enter__ = lambda s: s
+        mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+        rc = main(
+            [
+                "apply",
+                str(sample_config_path),
+                "--host", "mail.test",
+                "--user", "u",
+                "--password", "pw",
+            ]
+        )
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "Moved 0 message" in err
+
+    def test_apply_bad_alias_file(self, tmp_path, capsys):
+        bad = tmp_path / "bad.json"
+        bad.write_text("not json")
+        rc = main(["apply", str(bad), "--host", "mail.test", "--user", "u", "--password", "pw"])
+        assert rc == 2

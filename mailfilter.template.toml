@@ -6,24 +6,27 @@
 host = "mail.example.com"
 port = 993
 user = "you@example.com"
-# password = "secret"            # optional -- prompted if omitted; use --store-password for keyring
-connection_security = "ssl"      # ssl | starttls | none  (aligned with Thunderbird)
-# insecure = false               # skip TLS certificate verification (NOT the same as "none")
+# password = "secret"            # optional -- prompted if omitted; keyring is preferred
+connection_security = "ssl"      # ssl | starttls | none
+# store_password = true          # store prompted password in system keyring
 folders = ["INBOX"]              # IMAP folders to scan; supports multiple: ["INBOX", "Sent"]
 domain = "example.com"           # only extract aliases matching this domain
 # headers = ["To", "Delivered-To", "X-Original-To"]
 # incremental = true             # use last_fetched from alias file for incremental scanning
+# folder_sep = "."               # folder hierarchy separator (".", "/", etc.)
 
 [managesieve]
 host = "mail.example.com"
 port = 4190
 username = "you@example.com"
 # password = "secret"            # optional -- prompted if omitted
-connection_security = "auto"     # auto | ssl | starttls | none
-# insecure = false
+connection_security = "ssl"      # ssl | starttls | none
+# store_password = true          # store prompted password in system keyring
+# use_imap_password = false      # reuse the IMAP keyring entry for ManageSieve auth
 # authz_id = ""                  # SASL authorization identity (RFC 4616); leave empty for normal use
-folder_prefix = "alias"          # aliases are sorted into <prefix>/<local-part>
+folder_prefix = "alias"          # aliases are sorted into <prefix><sep><local-part>
+# folder_sep = "."               # folder hierarchy separator (must match [imap] folder_sep)
 
 [filenames]
-sieve_file = "mailfilter.sieve"  # default output file for 'generate'
-alias_file = "aliases.json"      # default output file for 'extract-aliases'
+sieve_file = "aliasfilter.sieve"  # default output file for 'generate'
+alias_file = "aliases.json"      # default output file for 'extract'

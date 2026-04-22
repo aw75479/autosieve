@@ -1,4 +1,4 @@
-# mailfilter
+# autosieve
 
 Generate Sieve scripts from JSON alias mappings, extract email aliases from IMAP inboxes, and upload via ManageSieve.
 
@@ -9,8 +9,9 @@ Generate Sieve scripts from JSON alias mappings, extract email aliases from IMAP
 ```bash
 uv sync
 cp mailfilter.template.toml mailfilter.toml   # edit with your server details
-uv run mailfilter extract-aliases              # scan IMAP and write aliases.json
-uv run mailfilter generate aliases.json        # generate mailfilter.sieve
+uv run autosieve extract-aliases               # scan IMAP and write aliases.json
+uv run autosieve generate aliases.json         # generate mailfilter.sieve
+uv run autosieve upload                        # upload existing sieve file
 ```
 
 ## Configuration
@@ -28,7 +29,8 @@ cp mailfilter.template.toml mailfilter.toml
 host = "mail.example.com"
 user = "you@example.com"
 domain = "example.com"
-connection_security = "ssl"      # ssl | starttls | none (aligned with Thunderbird)
+connection_security = "auto"     # auto | ssl | starttls | none
+# store_password = true           # store prompted IMAP password in keyring
 folders = ["INBOX"]              # IMAP folders to scan (supports multiple)
 # incremental = true             # use last_fetched for incremental scanning
 
@@ -36,6 +38,7 @@ folders = ["INBOX"]              # IMAP folders to scan (supports multiple)
 host = "mail.example.com"
 username = "you@example.com"
 connection_security = "auto"     # auto | ssl | starttls | none
+# store_password = true           # store prompted ManageSieve password in keyring
 folder_prefix = "alias"          # aliases sorted into <prefix>/<local-part>
 # authz_id = ""                  # SASL authorization identity (RFC 4616)
 
@@ -53,20 +56,20 @@ CLI flags override config values; missing mandatory values are prompted interact
 Scan your inbox to discover all aliases used:
 
 ```bash
-uv run mailfilter extract-aliases
+uv run autosieve extract-aliases
 ```
 
 Or with explicit parameters:
 
 ```bash
-uv run mailfilter extract-aliases mail.example.com \
+uv run autosieve extract-aliases mail.example.com \
     --user you@example.com \
     --domain example.com \
     --since 2025-01-01 \
     aliases.json
 ```
 
-A progress bar is shown on stderr during scanning.
+A progress bar is shown on stderr during scanning. The command also reports how many aliases are truly new. Use `--verbose` to print all discovered aliases with their header sources.
 
 **Header auto-discovery**: For each alias, the tool records which headers it was found in (e.g. `X-Original-To`, `Delivered-To`). The generated Sieve rules then only match against those specific headers, making rules more precise.
 
@@ -86,12 +89,12 @@ Options:
 | `--since` | Only scan messages from this date (YYYY-MM-DD) |
 | `--headers` | Headers to scan (default: To Delivered-To X-Original-To) |
 | `--folder-prefix` | Folder prefix for alias rules (default: alias) |
-| `--connection-security` | ssl / starttls / none (default: ssl) |
+| `--connection-security` | auto / ssl / starttls / none (default: auto) |
 | `--no-incremental` | Disable incremental scanning (ignore last_fetched) |
 | `--dry-run` | Show what would change without writing |
+| `--verbose` | Print each discovered alias and where it was found |
 | `--password` | Password (prompted if omitted) |
 | `--store-password` | Store password in system keyring for future use |
-| `--insecure` | Disable TLS certificate verification |
 | `--stdout` | Write to stdout instead of a file |
 
 ### 2. Edit the alias file
@@ -125,7 +128,7 @@ Per-rule `headers` override the global setting. Rules without `headers` match ag
 ### 3. Generate Sieve script
 
 ```bash
-uv run mailfilter generate aliases.json
+uv run autosieve generate aliases.json
 ```
 
 Output is written to `mailfilter.sieve` by default (configurable in `[filenames]`). Use `--stdout` to print to stdout, or `--output custom.sieve` to specify a file.
@@ -133,10 +136,16 @@ Output is written to `mailfilter.sieve` by default (configurable in `[filenames]
 ### 4. Upload via ManageSieve
 
 ```bash
-uv run mailfilter generate aliases.json --upload
+uv run autosieve upload
 ```
 
-Missing `--host` and `--username` are prompted interactively when `--upload` is used.
+Missing `--host` and `--username` are prompted interactively.
+
+You can also still upload right after generation in one step:
+
+```bash
+uv run autosieve generate aliases.json --upload
+```
 
 Options for `generate`:
 
@@ -147,7 +156,6 @@ Options for `generate`:
 | `--output` | Output file (default: `mailfilter.sieve`) |
 | `--stdout` | Write to stdout instead of a file |
 | `--script-name` | Override script name from alias file |
-| `--upload` | Upload via ManageSieve after generation |
 | `--host` | ManageSieve host[:port] (default port: 4190, prompted if omitted) |
 | `--username` | ManageSieve username (prompted if omitted) |
 | `--connection-security` | auto / ssl / starttls / none |
@@ -156,7 +164,21 @@ Options for `generate`:
 | `--dry-run` | Show diff of what would change without writing |
 | `--password` | Password (prompted if omitted) |
 | `--store-password` | Store password in system keyring for future use |
-| `--insecure` | Disable TLS certificate verification |
+
+Options for `upload`:
+
+| Flag | Description |
+|------|-------------|
+| `script-file` | Sieve file to upload (positional, defaults to configured `sieve_file`) |
+| `--script-name` | Script name on server (default: file stem) |
+| `--config` | Server config TOML file (default: auto-load `mailfilter.toml`) |
+| `--host` | ManageSieve host[:port] (default port: 4190, prompted if omitted) |
+| `--username` | ManageSieve username (prompted if omitted) |
+| `--connection-security` | auto / ssl / starttls / none |
+| `--no-activate` | Upload but do not activate |
+| `--no-check` | Skip CHECKSCRIPT before upload |
+| `--password` | Password (prompted if omitted) |
+| `--store-password` | Store password in system keyring for future use |
 
 ## Alias file format
 
@@ -177,7 +199,11 @@ Each rule: `alias` (string) and/or `aliases` (string[]), `folder` (string, requi
 
 ### Envelope mode
 
-Set `"generation_mode": "envelope"` for a compact script using Sieve `envelope` + `variables` extensions (RFC 5228, RFC 5229). Instead of one `if` block per alias, all aliases on the same domain are handled in a single block using variable interpolation:
+Set `"generation_mode": "envelope"` for a compact script using Sieve `envelope` + `variables` extensions (RFC 5228, RFC 5229). Instead of one `if` block per alias, aliases are grouped by domain and folder template.
+
+Supported folder templates are discovered from rules automatically:
+- `alias/<sender>` -> `alias/${alias}`
+- `alias/shops/<sender>` -> `alias/shops/${alias}`
 
 ```json
 {
@@ -212,16 +238,20 @@ if envelope :domain :is "to" "example.com" {
 
 Requirements: server must support `envelope` and `variables` extensions (Dovecot Pigeonhole, Cyrus, Fastmail all do). The SMTP envelope `RCPT TO` must preserve the original alias (not rewrite to the final mailbox). Rules must follow the `{folder_prefix}/{local_part}` folder naming convention.
 
+When no alias list matches, a fallback folder is used:
+- Base template fallback: `catch_all_folder` when set, else `<folder_prefix>/_other`
+- Nested template fallback: `<template-parent>/_other` (for example `alias/shops/_other`)
+
 ## Connection security
 
 The `connection_security` setting aligns with Thunderbird's naming:
 
 | Value | Description |
 |-------|-------------|
-| `ssl` | Implicit TLS (Thunderbird: SSL/TLS). Default for IMAP (port 993). |
+| `auto` | Try `ssl`, then `starttls`, then `none` (if needed). |
+| `ssl` | Implicit TLS (Thunderbird: SSL/TLS). Typical for IMAP port 993. |
 | `starttls` | Upgrade plaintext to TLS (Thunderbird: STARTTLS). |
 | `none` | No encryption (Thunderbird: None). |
-| `auto` | Try STARTTLS if available, else plaintext. ManageSieve only. |
 
 ## Development
 

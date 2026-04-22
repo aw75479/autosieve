@@ -39,7 +39,7 @@ are:
 
 Only **SASL PLAIN** (ManageSieve) and **IMAP LOGIN** are supported.  These
 mechanisms send credentials over the wire, which is safe when used with TLS
-(`connection_security = "ssl"` or `"starttls"`).
+(`connection_security = "auto"`, `"ssl"`, or `"starttls"`).
 
 More advanced mechanisms supported by Thunderbird and other clients are
 **not** implemented:
@@ -51,9 +51,8 @@ More advanced mechanisms supported by Thunderbird and other clients are
 For servers that require OAuth2, mailfilter cannot be used directly.
 
 **Never use PLAIN/LOGIN without TLS** -- credentials would be sent in clear
-text.  The `insecure` flag only disables TLS certificate verification; it
-does **not** disable encryption.  `connection_security = "none"` disables
-encryption entirely and should only be used on trusted local networks.
+text.  `connection_security = "none"` disables encryption entirely and should
+only be used on trusted local networks.
 
 ### Sieve injection prevention
 
@@ -77,13 +76,10 @@ break out of a Sieve quoted string context.
 
 ### Transport security
 
-- IMAP connections default to `connection_security = "ssl"` (implicit TLS on
-  port 993), matching Thunderbird's default.
-- ManageSieve connections default to `connection_security = "auto"`, which
-  negotiates STARTTLS when the server advertises it.
-- TLS certificate verification is **enabled by default**.  The `--insecure`
-  flag disables verification and should only be used for testing against
-  servers with self-signed certificates.
+- IMAP and ManageSieve connections both default to
+  `connection_security = "auto"`.
+- `auto` tries the most secure option first and falls back as needed.
+- TLS certificate verification is **always enabled** for TLS modes.
 - SSL contexts use `ssl.create_default_context()` which enforces modern TLS
   settings (TLS 1.2+, strong cipher suites, hostname verification).
 
@@ -110,11 +106,10 @@ break out of a Sieve quoted string context.
    (`chmod 600`) if it contains passwords.
 2. **Use the system keyring** (`--store-password`) instead of storing
    passwords in `mailfilter.toml` when possible.
-3. **Use `connection_security = "ssl"`** (the default) for production mail
+3. **Use TLS security modes** (`"auto"`, `"ssl"`, or `"starttls"`) for production mail
    servers.
-4. **Do not use `--insecure`** in production.  It disables TLS certificate
-   verification but keeps encryption.  It is *not* the same as
-   `connection_security = "none"` which disables encryption entirely.
+4. **Avoid `connection_security = "none"`** in production.  It disables
+  encryption entirely.
 5. **Review generated Sieve scripts** before uploading to production servers,
    especially after the first run or when aliases change significantly.
    Use `--dry-run` to preview changes before writing.

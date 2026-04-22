@@ -27,6 +27,7 @@ class TestLoadServerConfig:
         cfg = load_server_config(toml)
         assert cfg.imap.host == ""
         assert cfg.imap.port == 993
+        assert cfg.imap.connection_security == "ssl"
         assert cfg.managesieve.port == 4190
         assert cfg.managesieve.folder_prefix == "alias"
 
@@ -45,7 +46,7 @@ class TestLoadServerConfig:
 
     def test_folder_string_converted_to_list(self, tmp_path):
         toml = tmp_path / "cfg.toml"
-        toml.write_text('[imap]\nfolder = "Archive"\n')
+        toml.write_text('[imap]\nfolders = "Archive"\n')
         cfg = load_server_config(toml)
         assert cfg.imap.folders == ["Archive"]
 
@@ -67,11 +68,11 @@ class TestLoadServerConfig:
         cfg = load_server_config(toml)
         assert cfg.managesieve.folder_prefix == "clients"
 
-    def test_legacy_alias_section(self, tmp_path):
+    def test_legacy_alias_section_ignored(self, tmp_path):
         toml = tmp_path / "cfg.toml"
         toml.write_text('[alias]\nfolder_prefix = "legacy"\n')
         cfg = load_server_config(toml)
-        assert cfg.managesieve.folder_prefix == "legacy"
+        assert cfg.managesieve.folder_prefix == "alias"
 
     def test_filenames_section(self, tmp_path):
         toml = tmp_path / "cfg.toml"
@@ -80,8 +81,41 @@ class TestLoadServerConfig:
         assert cfg.filenames.sieve_file == "custom.sieve"
         assert cfg.filenames.alias_file == "custom.json"
 
-    def test_legacy_output_section(self, tmp_path):
+    def test_legacy_output_section_ignored(self, tmp_path):
         toml = tmp_path / "cfg.toml"
         toml.write_text('[output]\nsieve_file = "old.sieve"\n')
         cfg = load_server_config(toml)
-        assert cfg.filenames.sieve_file == "old.sieve"
+        assert cfg.filenames.sieve_file == "aliasfilter.sieve"
+
+    def test_store_password_flags(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text("[imap]\nstore_password = true\n\n[managesieve]\nstore_password = true\n")
+        cfg = load_server_config(toml)
+        assert cfg.imap.store_password is True
+        assert cfg.managesieve.store_password is True
+
+    def test_use_imap_password_default_false(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text("")
+        cfg = load_server_config(toml)
+        assert cfg.managesieve.use_imap_password is False
+
+    def test_use_imap_password_enabled(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text("[managesieve]\nuse_imap_password = true\n")
+        cfg = load_server_config(toml)
+        assert cfg.managesieve.use_imap_password is True
+
+    def test_folder_sep_default_dot(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text("")
+        cfg = load_server_config(toml)
+        assert cfg.imap.folder_sep == "."
+        assert cfg.managesieve.folder_sep == "."
+
+    def test_folder_sep_configurable(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text("[imap]\nfolder_sep = \"/\"\n\n[managesieve]\nfolder_sep = \"/\"\n")
+        cfg = load_server_config(toml)
+        assert cfg.imap.folder_sep == "/"
+        assert cfg.managesieve.folder_sep == "/"

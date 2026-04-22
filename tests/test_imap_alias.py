@@ -5,9 +5,14 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock
 
+import pytest
+
 from mailfilter.imap_alias import (
     _extract_addresses,
+    _or_imap_search,
+    apply_rules_imap,
     build_alias_mapping,
+    create_imap_folder,
     extract_aliases,
     get_last_fetched,
     merge_aliases_into,
@@ -150,14 +155,18 @@ class TestBuildAliasMapping:
         mapping = build_alias_mapping(aliases)
         assert mapping["script_name"] == "alias-router"
         assert len(mapping["rules"]) == 2
-        # Each gets folder alias/<local-part>.
+        # Default separator is "." → folder alias.<local-part>
         folders = {r["folder"] for r in mapping["rules"]}
-        assert "alias/a" in folders
-        assert "alias/c" in folders
+        assert "alias.a" in folders
+        assert "alias.c" in folders
 
     def test_custom_prefix(self):
         mapping = build_alias_mapping({"a@b.com": set()}, folder_prefix="work")
-        assert mapping["rules"][0]["folder"] == "work/a"
+        assert mapping["rules"][0]["folder"] == "work.a"
+
+    def test_slash_separator(self):
+        mapping = build_alias_mapping({"a@b.com": set()}, folder_sep="/")
+        assert mapping["rules"][0]["folder"] == "alias/a"
 
     def test_empty(self):
         mapping = build_alias_mapping({})
@@ -166,10 +175,10 @@ class TestBuildAliasMapping:
     def test_plus_suffix_merged(self):
         aliases = {"user@b.com": set(), "user+tag@b.com": set()}
         mapping = build_alias_mapping(aliases)
-        # Both should be merged into one rule with folder alias/user.
+        # Both should be merged into one rule with folder alias.user.
         assert len(mapping["rules"]) == 1
         rule = mapping["rules"][0]
-        assert rule["folder"] == "alias/user"
+        assert rule["folder"] == "alias.user"
         assert set(rule["aliases"]) == {"user@b.com", "user+tag@b.com"}
 
     def test_per_rule_headers(self):
@@ -284,9 +293,147 @@ class TestWriteAliasMapping:
         import json
 
         data = json.loads(out.read_text())
-        assert data["rules"][0]["folder"] == "alias/a"
+        assert data["rules"][0]["folder"] == "alias.a"
 
     def test_to_string(self):
         mapping = build_alias_mapping({"a@b.com": set()})
         text = write_alias_mapping(mapping, None)
         assert '"a@b.com"' in text
+
+
+class TestOrImapSearch:
+    def test_single(self):
+        assert _or_imap_search('HEADER "To" "a@b.com"') == 'HEADER "To" "a@b.com"'
+
+    def test_two(self):
+        result = _or_imap_search('HEADER "To" "a@b.com"', 'HEADER "To" "c@b.com"')
+        assert result == 'OR HEADER "To" "a@b.com" HEADER "To" "c@b.com"'
+
+    def test_three_nests(self):
+        result = _or_imap_search("A", "B", "C")
+        # "A" and "B" don't start with "OR" so no parens on first step:
+        # step1: result = "OR A B"; step2: left = "(OR A B)" → "OR (OR A B) C"
+        assert result == "OR (OR A B) C"
+
+    def test_empty_returns_all(self):
+        assert _or_imap_search() == "ALL"
+
+
+class TestCreateImapFolder:
+    def test_creates_folder(self):
+        conn = MagicMock()
+        conn.create.return_value = ("OK", [b"folder created"])
+        create_imap_folder(conn, "alias.test")
+        conn.create.assert_called_once_with("alias.test")
+
+    def test_ignores_already_exists(self):
+        conn = MagicMock()
+        conn.create.return_value = ("NO", [b"[ALREADYEXISTS] folder exists"])
+        # Should not raise
+        create_imap_folder(conn, "alias.test")
+
+    def test_raises_on_other_error(self):
+        import imaplib
+
+        conn = MagicMock()
+        conn.create.return_value = ("NO", [b"some other error"])
+        with pytest.raises(imaplib.IMAP4.error):
+            create_imap_folder(conn, "alias.bad")
+
+
+class TestApplyRulesImap:
+    def _make_conn(self, uid_search_results: dict[str, list[bytes]]) -> MagicMock:
+        """Build a mock IMAP connection.
+
+        *uid_search_results* maps a SEARCH criteria fragment to the list of
+        UIDs to return.  If the criteria matches any key substring, those UIDs
+        are returned; otherwise an empty result is returned.
+        """
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.create.return_value = ("OK", [b"created"])
+
+        def uid_handler(command, *args):
+            if command == "SEARCH":
+                # Return the pre-configured UIDs for any search.
+                for key, uids in uid_search_results.items():
+                    criteria = " ".join(str(a) for a in args if a is not None)
+                    if key in criteria:
+                        uid_str = b" ".join(uids) if uids else b""
+                        return ("OK", [uid_str])
+                return ("OK", [b""])
+            elif command in ("MOVE", "COPY"):
+                return ("OK", [b"done"])
+            elif command == "STORE":
+                return ("OK", [b"done"])
+            return ("OK", [b""])
+
+        conn.uid.side_effect = uid_handler
+        conn.expunge.return_value = ("OK", [b""])
+        return conn
+
+    def _make_config(self, rules):
+        from mailfilter.config import Config, Rule
+
+        return Config(
+            headers=["To"],
+            use_create=True,
+            script_name="test",
+            explicit_keep=False,
+            match_type="is",
+            rules=rules,
+        )
+
+    def test_dry_run_no_move(self):
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"])
+        conn = self._make_conn({"alice@example.com": [b"1", b"2"]})
+        config = self._make_config([rule])
+
+        moved = apply_rules_imap(conn, config, ["INBOX"], dry_run=True)
+        assert moved == {"alias.alice": 2}
+        # No actual MOVE or COPY should have been called.
+        for call in conn.uid.call_args_list:
+            assert call.args[0] not in ("MOVE", "COPY")
+
+    def test_moves_messages(self):
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"])
+        conn = self._make_conn({"alice@example.com": [b"1"]})
+        config = self._make_config([rule])
+
+        moved = apply_rules_imap(conn, config, ["INBOX"])
+        assert moved == {"alias.alice": 1}
+
+    def test_no_match_returns_empty(self):
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["nobody@example.com"], folder="alias.nobody", headers=["To"])
+        conn = self._make_conn({})
+        config = self._make_config([rule])
+
+        moved = apply_rules_imap(conn, config, ["INBOX"])
+        assert moved == {}
+
+    def test_inactive_rule_skipped(self):
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"], active=False)
+        conn = self._make_conn({"alice@example.com": [b"1"]})
+        config = self._make_config([rule])
+
+        moved = apply_rules_imap(conn, config, ["INBOX"])
+        assert moved == {}
+
+    def test_progress_callback(self):
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"])
+        conn = self._make_conn({"alice@example.com": [b"1", b"2"]})
+        config = self._make_config([rule])
+
+        calls: list[tuple[str, int]] = []
+        apply_rules_imap(conn, config, ["INBOX"], dry_run=True, progress=lambda f, c: calls.append((f, c)))
+        assert ("alias.alice", 2) in calls

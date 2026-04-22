@@ -320,17 +320,18 @@ class TestOrImapSearch:
 
 
 class TestCreateImapFolder:
-    def test_creates_folder(self):
+    def test_creates_folder_returns_true(self):
         conn = MagicMock()
         conn.create.return_value = ("OK", [b"folder created"])
-        create_imap_folder(conn, "alias.test")
+        result = create_imap_folder(conn, "alias.test")
         conn.create.assert_called_once_with("alias.test")
+        assert result is True
 
-    def test_ignores_already_exists(self):
+    def test_already_exists_returns_false(self):
         conn = MagicMock()
         conn.create.return_value = ("NO", [b"[ALREADYEXISTS] folder exists"])
-        # Should not raise
-        create_imap_folder(conn, "alias.test")
+        result = create_imap_folder(conn, "alias.test")
+        assert result is False
 
     def test_raises_on_other_error(self):
         import imaplib
@@ -632,7 +633,7 @@ class TestApplyRulesImapMissingLines:
         assert ("alias.a", 0) in progress_calls
 
     def test_create_folder_exception_suppressed(self):
-        """Exception in create_imap_folder is suppressed; move continues (lines 454-455)."""
+        """Exception in create_imap_folder is suppressed; move continues."""
 
         from mailfilter.config import Rule
 
@@ -645,8 +646,70 @@ class TestApplyRulesImapMissingLines:
             ("OK", [b"1"]),  # SEARCH
             ("OK", [b""]),  # MOVE
         ]
-        # create_imap_folder → conn.create returns a non-ALREADYEXISTS NO → raises inside create_imap_folder
+        # create_imap_folder → conn.create returns a non-ALREADYEXISTS NO → raises
         conn.create.return_value = ("NO", [b"permission denied"])
         # Should not raise; the exception is suppressed.
         moved = apply_rules_imap(conn, config, ["INBOX"], create_folders=True)
         assert moved == {"alias.a": 1}
+
+    def test_folder_created_callback_fires_for_new_folder(self):
+        """folder_created callback is called when a folder is newly created."""
+
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.uid.side_effect = [
+            ("OK", [b"1"]),  # SEARCH
+            ("OK", [b""]),  # MOVE
+        ]
+        conn.create.return_value = ("OK", [b"created"])  # folder is new
+        created: list[str] = []
+        apply_rules_imap(conn, config, ["INBOX"], create_folders=True, folder_created=lambda f: created.append(f))
+        assert created == ["alias.a"]
+
+    def test_folder_created_callback_not_fired_for_existing_folder(self):
+        """folder_created callback is NOT called when the folder already existed."""
+
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.uid.side_effect = [
+            ("OK", [b"1"]),  # SEARCH
+            ("OK", [b""]),  # MOVE
+        ]
+        conn.create.return_value = ("NO", [b"[ALREADYEXISTS] already exists"])  # pre-existing
+        created: list[str] = []
+        apply_rules_imap(conn, config, ["INBOX"], create_folders=True, folder_created=lambda f: created.append(f))
+        assert created == []
+
+    def test_folder_created_callback_not_fired_twice_for_same_folder(self):
+        """folder_created fires at most once per folder even across multiple source folders."""
+
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.uid.side_effect = [
+            ("OK", [b"1"]),  # SEARCH inbox
+            ("OK", [b""]),  # MOVE inbox
+            ("OK", [b"2"]),  # SEARCH sent
+            ("OK", [b""]),  # MOVE sent
+        ]
+        conn.create.return_value = ("OK", [b"created"])
+        created: list[str] = []
+        apply_rules_imap(
+            conn,
+            config,
+            ["INBOX", "Sent"],
+            create_folders=True,
+            folder_created=lambda f: created.append(f),
+        )
+        assert created == ["alias.a"]  # only once, not twice

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import email.utils
 import imaplib
 import json
@@ -337,13 +336,23 @@ def stderr_progress(processed: int, total: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def create_imap_folder(conn: imaplib.IMAP4 | imaplib.IMAP4_SSL, folder: str) -> None:
-    """Create *folder* on the IMAP server, ignoring 'already exists' errors."""
+def create_imap_folder(conn: imaplib.IMAP4 | imaplib.IMAP4_SSL, folder: str) -> bool:
+    """Create *folder* on the IMAP server.
+
+    Returns:
+        ``True`` if the folder was newly created, ``False`` if it already existed.
+
+    Raises:
+        :class:`imaplib.IMAP4.error`: If the CREATE command fails for any reason
+            other than the folder already existing.
+    """
     typ, data = conn.create(folder)
-    if typ != "OK":
-        msg = data[0].decode() if data and isinstance(data[0], bytes) else str(data)
-        if "ALREADYEXISTS" not in msg.upper() and "already exist" not in msg.lower():
-            raise imaplib.IMAP4.error(f"CREATE {folder!r} failed: {msg}")
+    if typ == "OK":
+        return True
+    msg = data[0].decode() if data and isinstance(data[0], bytes) else str(data)
+    if "ALREADYEXISTS" in msg.upper() or "already exist" in msg.lower():
+        return False
+    raise imaplib.IMAP4.error(f"CREATE {folder!r} failed: {msg}")
 
 
 def _or_imap_search(*parts: str) -> str:
@@ -399,6 +408,7 @@ def apply_rules_imap(
     dry_run: bool = False,
     create_folders: bool = True,
     progress: Callable[[str, int], None] | None = None,
+    folder_created: Callable[[str], None] | None = None,
 ) -> dict[str, int]:
     """Apply alias rules to existing messages in *source_folders*.
 
@@ -414,6 +424,9 @@ def apply_rules_imap(
         create_folders: When ``True``, create target folders that don't exist.
         progress: Optional callback ``(target_folder, matched_count)`` called
             after processing each rule per source folder.
+        folder_created: Optional callback ``(folder_name)`` called once per
+            newly created IMAP folder (i.e. folders that did not previously
+            exist and were created during this run).
 
     Returns:
         Dict mapping target folder path to number of messages moved (or
@@ -422,6 +435,8 @@ def apply_rules_imap(
 
     moved: dict[str, int] = defaultdict(int)
     active_rules = [r for r in config.rules if r.active]
+    # Track folders already known to exist so we only fire folder_created once.
+    known_folders: set[str] = set()
 
     for source in source_folders:
         conn.select(source)
@@ -451,9 +466,14 @@ def apply_rules_imap(
                 continue
 
             if not dry_run:
-                if create_folders:
-                    with contextlib.suppress(Exception):  # folder exists or server error
-                        create_imap_folder(conn, rule.folder)
+                if create_folders and rule.folder not in known_folders:
+                    try:
+                        was_created = create_imap_folder(conn, rule.folder)
+                        if was_created and folder_created:
+                            folder_created(rule.folder)
+                    except Exception:
+                        pass  # genuine CREATE error; attempt move anyway
+                known_folders.add(rule.folder)
                 _imap_move_messages(conn, uids, rule.folder)
                 # Re-select the source folder after a move (EXPUNGE invalidates it).
                 conn.select(source)

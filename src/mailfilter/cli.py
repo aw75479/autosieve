@@ -626,6 +626,11 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             verb = "would move" if args.dry_run else "moved"
             eprint(f"  {verb} {count} → {folder}")
 
+    new_folders: list[str] = []
+
+    def _folder_created(folder: str) -> None:
+        new_folders.append(folder)
+
     try:
         moved = apply_rules_imap(
             conn,
@@ -634,6 +639,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             create_folders=not args.no_create,
             progress=_progress,
+            folder_created=_folder_created,
         )
     except Exception as exc:
         eprint(f"Apply failed: {exc}")
@@ -645,6 +651,9 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     total = sum(moved.values())
     verb = "Would move" if args.dry_run else "Moved"
     eprint(f"{verb} {total} message(s) to {len(moved)} folder(s).")
+    if new_folders:
+        eprint(f"Created {len(new_folders)} new folder(s): {', '.join(new_folders)}")
+        eprint("Tip: refresh your mail client's folder list to see the new folder(s).")
     return 0
 
 

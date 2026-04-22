@@ -1096,3 +1096,34 @@ class TestCLIMissingLines:
         assert rc == 1
         err = capsys.readouterr().err
         assert "Apply failed" in err
+
+    @patch("mailfilter.cli.apply_rules_imap")
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    def test_apply_new_folders_hint(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
+        """apply prints a mail-client refresh hint when new folders are created."""
+        mock_conn.return_value = MagicMock()
+
+        def fake_apply(conn, config, folders, **kwargs):
+            folder_created = kwargs.get("folder_created")
+            if folder_created:
+                folder_created("alias.newone")
+            return {"alias.newone": 2}
+
+        mock_apply.side_effect = fake_apply
+        rc = main(
+            [
+                "apply",
+                str(sample_config_path),
+                "--host",
+                "mail.test",
+                "--user",
+                "u",
+                "--password",
+                "pw",
+            ]
+        )
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "alias.newone" in err
+        assert "refresh" in err.lower()

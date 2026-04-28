@@ -145,3 +145,179 @@ class TestParseSecurityHelper:
 
         with pytest.raises(ValueError, match="connection_security"):
             _parse_security("tls", "imap")
+
+
+class TestMultiTarget:
+    """v0.2.0 [[targets]] array shape."""
+
+    def _two_targets_toml(self):
+        return (
+            'default_target = "personal"\n'
+            'data_dir = "./mydata"\n\n'
+            "[[targets]]\n"
+            'name = "personal"\n'
+            "[targets.imap]\n"
+            'host = "p.example.com"\nuser = "me@p.example.com"\n'
+            "[targets.managesieve]\n"
+            'host = "p.example.com"\nusername = "me@p.example.com"\n\n'
+            "[[targets]]\n"
+            'name = "work"\n'
+            "[targets.imap]\n"
+            'host = "w.example.com"\nuser = "me@w.example.com"\nauth = "xoauth2"\n'
+            "[targets.managesieve]\n"
+            'host = "w.example.com"\nusername = "me@w.example.com"\n'
+        )
+
+    def test_two_targets_loaded(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(self._two_targets_toml())
+        cfg = load_server_config(toml)
+        assert cfg.target_names() == ["personal", "work"]
+        assert cfg.default_target == "personal"
+        assert cfg.data_dir == "./mydata"
+
+    def test_get_target_by_name(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(self._two_targets_toml())
+        cfg = load_server_config(toml)
+        work = cfg.get_target("work")
+        assert work.imap.host == "w.example.com"
+        assert work.imap.auth == "xoauth2"
+
+    def test_get_target_default(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(self._two_targets_toml())
+        cfg = load_server_config(toml)
+        default = cfg.get_target()
+        assert default.name == "personal"
+
+    def test_get_target_unknown_raises(self, tmp_path):
+        import pytest
+
+        from autosieve.server_config import ConfigSchemaError
+
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(self._two_targets_toml())
+        cfg = load_server_config(toml)
+        with pytest.raises(ConfigSchemaError, match="unknown target"):
+            cfg.get_target("nonexistent")
+
+    def test_legacy_shim_uses_default_target(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(self._two_targets_toml())
+        cfg = load_server_config(toml)
+        # The legacy cfg.imap shim returns the default target (personal).
+        assert cfg.imap.host == "p.example.com"
+
+    def test_per_target_data_dir_override(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text('[[targets]]\nname = "x"\ndata_dir = "/abs/custom"\n[targets.imap]\nhost = "h"\n[targets.managesieve]\nhost = "h"\n')
+        cfg = load_server_config(toml)
+        t = cfg.get_target("x")
+        assert t.data_dir() == __import__("pathlib").Path("/abs/custom")
+
+    def test_default_data_dir_layout(self, tmp_path):
+        from pathlib import Path
+
+        toml = tmp_path / "cfg.toml"
+        toml.write_text('[[targets]]\nname = "alpha"\n[targets.imap]\nhost = "h"\n[targets.managesieve]\nhost = "h"\n')
+        cfg = load_server_config(toml)
+        t = cfg.get_target("alpha")
+        # Default data_dir is "./targets"; per-target folder is <data_dir>/<name>.
+        assert t.data_dir(cfg.data_dir) == Path("./targets/alpha").expanduser()
+
+    def test_alias_and_sieve_paths_relative_to_target_dir(self, tmp_path):
+        from pathlib import Path
+
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(
+            "[[targets]]\n"
+            'name = "alpha"\n'
+            '[targets.imap]\nhost = "h"\n'
+            '[targets.managesieve]\nhost = "h"\n'
+            '[targets.filenames]\nalias_file = "a.json"\nsieve_file = "s.sieve"\n'
+        )
+        cfg = load_server_config(toml)
+        t = cfg.get_target("alpha")
+        assert t.alias_path(cfg.data_dir) == Path("./targets/alpha/a.json").expanduser()
+        assert t.sieve_path(cfg.data_dir) == Path("./targets/alpha/s.sieve").expanduser()
+
+    def test_absolute_alias_file_kept_absolute(self, tmp_path):
+        from pathlib import Path
+
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(
+            "[[targets]]\n"
+            'name = "alpha"\n'
+            '[targets.imap]\nhost = "h"\n'
+            '[targets.managesieve]\nhost = "h"\n'
+            '[targets.filenames]\nalias_file = "/etc/aliases.json"\n'
+        )
+        cfg = load_server_config(toml)
+        t = cfg.get_target("alpha")
+        assert t.alias_path(cfg.data_dir) == Path("/etc/aliases.json")
+
+    def test_unknown_subtable_preserved_as_feature_block(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(
+            '[[targets]]\nname = "x"\n[targets.imap]\nhost = "h"\n[targets.managesieve]\nhost = "h"\n[targets.vacation]\nenabled = true\nsubject = "Out"\n'
+        )
+        cfg = load_server_config(toml)
+        t = cfg.get_target("x")
+        block = t.feature_block("vacation")
+        assert block == {"enabled": True, "subject": "Out"}
+        assert t.feature_block("notify") is None
+
+    def test_duplicate_target_names_rejected(self, tmp_path):
+        import pytest
+
+        from autosieve.server_config import ConfigSchemaError
+
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(
+            '[[targets]]\nname = "x"\n[targets.imap]\nhost="h"\n[targets.managesieve]\nhost="h"\n'
+            '[[targets]]\nname = "x"\n[targets.imap]\nhost="h"\n[targets.managesieve]\nhost="h"\n'
+        )
+        with pytest.raises(ConfigSchemaError, match="duplicate target"):
+            load_server_config(toml)
+
+    def test_mixed_top_level_and_targets_rejected(self, tmp_path):
+        import pytest
+
+        from autosieve.server_config import ConfigSchemaError
+
+        toml = tmp_path / "cfg.toml"
+        toml.write_text('[imap]\nhost = "x"\n[[targets]]\nname="y"\n[targets.imap]\nhost="z"\n[targets.managesieve]\nhost="z"\n')
+        with pytest.raises(ConfigSchemaError, match="both"):
+            load_server_config(toml)
+
+    def test_invalid_auth_rejected(self, tmp_path):
+        import pytest
+
+        from autosieve.server_config import ConfigSchemaError
+
+        toml = tmp_path / "cfg.toml"
+        toml.write_text('[imap]\nauth = "kerberos"\n')
+        with pytest.raises(ConfigSchemaError, match="auth must be"):
+            load_server_config(toml)
+
+    def test_managesieve_scripts_default_empty(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text("[managesieve]\n")
+        cfg = load_server_config(toml)
+        assert cfg.managesieve.scripts == []
+
+    def test_managesieve_scripts_list(self, tmp_path):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text('[managesieve]\nscripts = ["aliases", "vacation"]\n')
+        cfg = load_server_config(toml)
+        assert cfg.managesieve.scripts == ["aliases", "vacation"]
+
+    def test_single_target_implicit_default(self, tmp_path):
+        # When only one target is declared and default_target isn't set,
+        # the loader uses that target's name as the default.
+        toml = tmp_path / "cfg.toml"
+        toml.write_text('[[targets]]\nname="only"\n[targets.imap]\nhost="h"\n[targets.managesieve]\nhost="h"\n')
+        cfg = load_server_config(toml)
+        assert cfg.default_target == "only"
+        assert cfg.get_target().name == "only"

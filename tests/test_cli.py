@@ -1161,3 +1161,89 @@ class TestCLIMissingLines:
         )
         _, kwargs = mock_apply.call_args
         assert kwargs.get("subscribe_folders") is False
+
+
+class TestMultiTargetCLI:
+    """Tests for the --target NAME flag introduced in v0.2.0."""
+
+    def _two_target_toml(self, tmp_path, alias_a_path, alias_b_path):
+        toml = tmp_path / "autosieve.toml"
+        toml.write_text(
+            'default_target = "a"\n'
+            f'data_dir = "{tmp_path}"\n\n'
+            "[[targets]]\n"
+            'name = "a"\n'
+            "[targets.imap]\n"
+            'host = "ha"\nuser = "ua"\n'
+            "[targets.managesieve]\n"
+            'host = "ha"\nusername = "ua"\n'
+            "[targets.filenames]\n"
+            f'alias_file = "{alias_a_path}"\nsieve_file = "/dev/null"\n\n'
+            "[[targets]]\n"
+            'name = "b"\n'
+            "[targets.imap]\n"
+            'host = "hb"\nuser = "ub"\n'
+            "[targets.managesieve]\n"
+            'host = "hb"\nusername = "ub"\n'
+            "[targets.filenames]\n"
+            f'alias_file = "{alias_b_path}"\nsieve_file = "/dev/null"\n'
+        )
+        return toml
+
+    def _alias_file(self, tmp_path, name, alias):
+        p = tmp_path / name
+        p.write_text(json.dumps({"rules": [{"alias": alias, "folder": "F"}]}))
+        return p
+
+    def test_target_default(self, tmp_path, capsys):
+        a = self._alias_file(tmp_path, "a.json", "alpha@example.com")
+        b = self._alias_file(tmp_path, "b.json", "beta@example.com")
+        toml = self._two_target_toml(tmp_path, a, b)
+        rc = main(["generate", "--config", str(toml), "--stdout"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "alpha@example.com" in out
+        assert "beta@example.com" not in out
+
+    def test_target_explicit(self, tmp_path, capsys):
+        a = self._alias_file(tmp_path, "a.json", "alpha@example.com")
+        b = self._alias_file(tmp_path, "b.json", "beta@example.com")
+        toml = self._two_target_toml(tmp_path, a, b)
+        rc = main(["generate", "--config", str(toml), "--target", "b", "--stdout"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "beta@example.com" in out
+        assert "alpha@example.com" not in out
+
+    def test_target_unknown_returns_error(self, tmp_path, capsys):
+        a = self._alias_file(tmp_path, "a.json", "alpha@example.com")
+        b = self._alias_file(tmp_path, "b.json", "beta@example.com")
+        toml = self._two_target_toml(tmp_path, a, b)
+        rc = main(["generate", "--config", str(toml), "--target", "nope", "--stdout"])
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "Target error" in err
+        assert "unknown target" in err
+
+    def test_per_target_data_dir_used_for_alias_file_default(self, tmp_path, capsys):
+        """When alias_file isn't set per target, the path resolves under
+        <data_dir>/<target_name>/aliases.json."""
+        target_dir = tmp_path / "alpha"
+        target_dir.mkdir()
+        (target_dir / "aliases.json").write_text(json.dumps({"rules": [{"alias": "x@y.com", "folder": "F"}]}))
+        toml = tmp_path / "autosieve.toml"
+        toml.write_text(
+            f'data_dir = "{tmp_path}"\n\n'
+            "[[targets]]\n"
+            'name = "alpha"\n'
+            "[targets.imap]\n"
+            'host = "h"\n'
+            "[targets.managesieve]\n"
+            'host = "h"\n'
+            "[targets.filenames]\n"
+            'sieve_file = "/dev/null"\n'
+        )
+        rc = main(["generate", "--config", str(toml), "--stdout"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "x@y.com" in out

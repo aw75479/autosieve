@@ -222,9 +222,14 @@ def build_alias_mapping(
 
 
 def write_alias_mapping(mapping: dict[str, Any], output: Path | None) -> str:
-    """Serialize *mapping* as JSON. Write to *output* if given, else return string."""
+    """Serialize *mapping* as JSON. Write to *output* if given, else return string.
+
+    Parent directories of *output* are created on demand so per-target data
+    folders (``./targets/<name>/aliases.json``) work on first run.
+    """
     text = json.dumps(mapping, indent=2, ensure_ascii=False) + "\n"
     if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8", newline="\n")
     return text
 

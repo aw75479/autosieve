@@ -27,7 +27,7 @@ from autosieve.imap_alias import (
     write_alias_mapping,
 )
 from autosieve.managesieve import upload_via_managesieve
-from autosieve.server_config import load_server_config
+from autosieve.server_config import ServerConfig, Target, load_server_config
 from autosieve.sieve import generate_sieve
 
 try:
@@ -147,10 +147,15 @@ def resolve_password(
 
 
 def write_output(script_text: str, output_path: Path | None) -> None:
-    """Write *script_text* to *output_path*, or to stdout when *output_path* is ``None``."""
+    """Write *script_text* to *output_path*, or to stdout when *output_path* is ``None``.
+
+    Parent directories are created on demand so a per-target data folder layout
+    like ``./targets/<name>/aliasfilter.sieve`` works on first run.
+    """
     if output_path is None:
         sys.stdout.write(script_text)
         return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(script_text, encoding="utf-8", newline="\n")
 
 
@@ -162,6 +167,44 @@ def _add_password_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--store-password", action="store_true", help="Store password in system keyring for future use (requires keyring package)")
 
 
+def _add_target_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the shared ``--target NAME`` flag for selecting one of multiple targets."""
+    parser.add_argument(
+        "--target",
+        metavar="NAME",
+        help="Name of the [[targets]] entry to operate on (default: config's default_target)",
+    )
+
+
+def _resolve_target(args: argparse.Namespace, srv: ServerConfig | None) -> Target | None:
+    """Apply ``--target`` to *srv* and return the resolved :class:`Target`.
+
+    Mutates ``srv.default_target`` so downstream legacy shims
+    (``srv.imap``/``srv.managesieve``/``srv.filenames``) read from the
+    selected target.  Returns ``None`` when no server config was loaded.
+    """
+    if srv is None:
+        return None
+    name = getattr(args, "target", None)
+    if name:
+        srv.default_target = name
+    return srv.get_target()
+
+
+def _alias_path_default(srv: ServerConfig | None) -> Path:
+    """Return the default alias-file path for the resolved target."""
+    if srv is None:
+        return Path(DEFAULT_ALIAS_FILE)
+    return srv.get_target().alias_path(srv.data_dir)
+
+
+def _sieve_path_default(srv: ServerConfig | None) -> Path:
+    """Return the default sieve-file path for the resolved target."""
+    if srv is None:
+        return Path(DEFAULT_SIEVE_FILE)
+    return srv.get_target().sieve_path(srv.data_dir)
+
+
 # -- generate subcommand --
 
 
@@ -169,6 +212,7 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser("generate", help="Generate a Sieve script from a JSON alias file.")
     p.add_argument("alias_file", metavar="alias-file", nargs="?", type=Path, help="JSON alias file (default: from config or aliases.json)")
     p.add_argument("--config", type=Path, help="Server config TOML file")
+    _add_target_arg(p)
     p.add_argument("--output", type=Path, help="Output file (default: autosieve.sieve)")
     p.add_argument("--stdout", action="store_true", help="Write to stdout instead of a file")
     p.add_argument("--script-name", help="Override script name from alias file")
@@ -203,7 +247,13 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             eprint(f"Config error: {exc}")
             return 2
 
-    alias_file = args.alias_file or Path(srv.filenames.alias_file if srv else DEFAULT_ALIAS_FILE)
+    try:
+        _resolve_target(args, srv)
+    except Exception as exc:
+        eprint(f"Target error: {exc}")
+        return 2
+
+    alias_file = args.alias_file or _alias_path_default(srv)
     try:
         config = load_alias_config(alias_file)
     except Exception as exc:
@@ -220,10 +270,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         output_path = None
     elif args.output:
         output_path = args.output
-    elif srv and srv.filenames.sieve_file:
-        output_path = Path(srv.filenames.sieve_file)
     else:
-        output_path = Path(DEFAULT_SIEVE_FILE)
+        output_path = _sieve_path_default(srv)
 
     # Dry-run: show diff and exit.
     if args.dry_run:
@@ -324,6 +372,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser("extract", help="Scan an IMAP inbox and discover email aliases from message headers.")
     p.add_argument("server", nargs="?", help="[required] IMAP server as host or host:port (default port: 993)")
     p.add_argument("--config", type=Path, help="Server config TOML file")
+    _add_target_arg(p)
     p.add_argument("--user", help="[required] IMAP username (prompted if omitted)")
     p.add_argument("--domain", help="[required] Only extract aliases matching this domain (e.g. company.com)")
     p.add_argument("--folder", nargs="+", dest="folders", help="IMAP folder(s) to scan (default: INBOX). May specify multiple.")
@@ -357,9 +406,13 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             eprint(f"Config error: {exc}")
             return 2
 
-    imap_cfg = srv.imap if srv else None
+    try:
+        _resolve_target(args, srv)
+    except Exception as exc:
+        eprint(f"Target error: {exc}")
+        return 2
 
-    # Resolve parameters: CLI > server config > interactive prompt.
+    imap_cfg = srv.imap if srv else None
     server_raw = args.server or (imap_cfg.host if imap_cfg and imap_cfg.host else None) or _prompt("IMAP server (host or host:port)")
     default_port = imap_cfg.port if imap_cfg else DEFAULT_IMAP_PORT
     host, port = _parse_host_port(server_raw, default_port)
@@ -384,7 +437,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     existing_data: dict | None = None
     output_path: Path | None = args.alias_file
     if output_path is None and not args.stdout:
-        output_path = Path(srv.filenames.alias_file if srv else DEFAULT_ALIAS_FILE)
+        output_path = _alias_path_default(srv)
     since = _parse_date(args.since) if args.since else None
 
     if output_path and output_path.exists():
@@ -499,6 +552,7 @@ def _add_upload_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser("upload", help="Upload an existing Sieve script via ManageSieve and optionally activate it.")
     p.add_argument("script_file", nargs="?", type=Path, help="Sieve file to upload (default from config filenames.sieve_file or aliasfilter.sieve)")
     p.add_argument("--config", type=Path, help="Server config TOML file")
+    _add_target_arg(p)
     p.add_argument("--script-name", help="Script name on server (default: file stem)")
     p.add_argument("--no-activate", action="store_true", help="Upload but do not activate")
     p.add_argument("--no-check", action="store_true", help="Skip CHECKSCRIPT before upload")
@@ -526,12 +580,13 @@ def _cmd_upload(args: argparse.Namespace) -> int:
             eprint(f"Config error: {exc}")
             return 2
 
-    if args.script_file:
-        script_path = args.script_file
-    elif srv and srv.filenames.sieve_file:
-        script_path = Path(srv.filenames.sieve_file)
-    else:
-        script_path = Path(DEFAULT_SIEVE_FILE)
+    try:
+        _resolve_target(args, srv)
+    except Exception as exc:
+        eprint(f"Target error: {exc}")
+        return 2
+
+    script_path = args.script_file or _sieve_path_default(srv)
 
     if not script_path.exists():
         eprint(f"Script file not found: {script_path}")
@@ -557,6 +612,7 @@ def _add_apply_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("alias_file", metavar="alias-file", nargs="?", type=Path, help="JSON alias file (default: from config or aliases.json)")
     p.add_argument("--config", type=Path, help="Server config TOML file")
+    _add_target_arg(p)
     p.add_argument("--folder", nargs="+", dest="folders", help="Source IMAP folder(s) to scan (default: from config or INBOX)")
     p.add_argument("--host", help="IMAP host[:port] (default port: 993)")
     p.add_argument("--user", help="IMAP username")
@@ -596,9 +652,15 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             eprint(f"Config error: {exc}")
             return 2
 
+    try:
+        _resolve_target(args, srv)
+    except Exception as exc:
+        eprint(f"Target error: {exc}")
+        return 2
+
     imap_cfg = srv.imap if srv else None
 
-    alias_file = args.alias_file or Path(srv.filenames.alias_file if srv else DEFAULT_ALIAS_FILE)
+    alias_file = args.alias_file or _alias_path_default(srv)
     try:
         config = load_alias_config(alias_file)
     except Exception as exc:

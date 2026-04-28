@@ -1,9 +1,9 @@
-"""Tests for mailfilter.sieve."""
+"""Tests for autosieve.sieve."""
 
 from __future__ import annotations
 
-from mailfilter.config import Config, Rule
-from mailfilter.sieve import (
+from autosieve.config import Config, Rule
+from autosieve.sieve import (
     _group_rules_by_domain,
     generate_rule_block,
     generate_sieve,
@@ -141,7 +141,7 @@ class TestGenerateSieve:
 
     def test_sample_output_structure(self, sample_config_path):
         """Generate from sample config and verify structural correctness."""
-        from mailfilter.config import load_alias_config
+        from autosieve.config import load_alias_config
 
         config = load_alias_config(sample_config_path)
         sieve = generate_sieve(config)
@@ -156,7 +156,7 @@ class TestGenerateSieve:
         """Two JSON rules mapping to the same folder produce ONE sieve if-block."""
         import json
 
-        from mailfilter.config import load_alias_config
+        from autosieve.config import load_alias_config
 
         data = {
             "rules": [

@@ -1,4 +1,4 @@
-"""Tests for mailfilter.cli."""
+"""Tests for autosieve.cli."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mailfilter.cli import _keyring_key, _parse_host_port, main, resolve_password
+from autosieve.cli import _keyring_key, _parse_host_port, main, resolve_password
 
 
 class TestParseHostPort:
@@ -32,13 +32,13 @@ class TestResolvePassword:
         assert resolve_password(password="secret") == "secret"
 
     def test_prompt_fallback(self, monkeypatch):
-        monkeypatch.setattr("mailfilter.cli.getpass.getpass", lambda prompt: "prompted")
+        monkeypatch.setattr("autosieve.cli.getpass.getpass", lambda prompt: "prompted")
         assert resolve_password() == "prompted"
 
     def test_keyring_lookup(self, monkeypatch):
         mock_kr = MagicMock()
         mock_kr.get_password.return_value = "from-keyring"
-        monkeypatch.setattr("mailfilter.cli._keyring", mock_kr)
+        monkeypatch.setattr("autosieve.cli._keyring", mock_kr)
         pw = resolve_password(keyring_service="svc", keyring_user="usr")
         assert pw == "from-keyring"
         mock_kr.get_password.assert_called_once_with("svc", "usr")
@@ -46,28 +46,28 @@ class TestResolvePassword:
     def test_keyring_miss_falls_through(self, monkeypatch):
         mock_kr = MagicMock()
         mock_kr.get_password.return_value = None
-        monkeypatch.setattr("mailfilter.cli._keyring", mock_kr)
-        monkeypatch.setattr("mailfilter.cli.getpass.getpass", lambda prompt: "manual")
+        monkeypatch.setattr("autosieve.cli._keyring", mock_kr)
+        monkeypatch.setattr("autosieve.cli.getpass.getpass", lambda prompt: "manual")
         pw = resolve_password(keyring_service="svc", keyring_user="usr")
         assert pw == "manual"
 
     def test_store_password_in_keyring(self, monkeypatch):
         mock_kr = MagicMock()
-        monkeypatch.setattr("mailfilter.cli._keyring", mock_kr)
+        monkeypatch.setattr("autosieve.cli._keyring", mock_kr)
         resolve_password(password="direct", keyring_service="svc", keyring_user="usr", store_in_keyring=True)
         mock_kr.set_password.assert_called_once_with("svc", "usr", "direct")
 
     def test_store_prompted_password(self, monkeypatch):
         mock_kr = MagicMock()
         mock_kr.get_password.return_value = None
-        monkeypatch.setattr("mailfilter.cli._keyring", mock_kr)
-        monkeypatch.setattr("mailfilter.cli.getpass.getpass", lambda prompt: "typed")
+        monkeypatch.setattr("autosieve.cli._keyring", mock_kr)
+        monkeypatch.setattr("autosieve.cli.getpass.getpass", lambda prompt: "typed")
         resolve_password(keyring_service="svc", keyring_user="usr", store_in_keyring=True)
         mock_kr.set_password.assert_called_once_with("svc", "usr", "typed")
 
     def test_no_keyring_available(self, monkeypatch):
-        monkeypatch.setattr("mailfilter.cli._keyring", None)
-        monkeypatch.setattr("mailfilter.cli.getpass.getpass", lambda prompt: "fallback")
+        monkeypatch.setattr("autosieve.cli._keyring", None)
+        monkeypatch.setattr("autosieve.cli.getpass.getpass", lambda prompt: "fallback")
         pw = resolve_password(keyring_service="svc", keyring_user="usr")
         assert pw == "fallback"
 
@@ -106,8 +106,8 @@ class TestCLIGenerate:
         assert "fileinto" in out
 
     def test_generate_dry_run_no_changes(self, sample_config_path, tmp_path, capsys):
-        from mailfilter.config import load_alias_config
-        from mailfilter.sieve import generate_sieve
+        from autosieve.config import load_alias_config
+        from autosieve.sieve import generate_sieve
 
         config = load_alias_config(sample_config_path)
         existing = tmp_path / "out.sieve"
@@ -126,7 +126,7 @@ class TestCLIGenerate:
         assert "---" in out  # unified diff header
 
     def test_generate_with_toml_config(self, sample_config_path, tmp_path, capsys):
-        toml = tmp_path / "mailfilter.toml"
+        toml = tmp_path / "autosieve.toml"
         toml.write_text('[filenames]\nsieve_file = "custom.sieve"\n')
         rc = main(["generate", str(sample_config_path), "--config", str(toml), "--stdout"])
         assert rc == 0
@@ -171,7 +171,7 @@ class TestCLIGenerate:
                 }
             )
         )
-        toml = tmp_path / "mailfilter.toml"
+        toml = tmp_path / "autosieve.toml"
         toml.write_text(f'[filenames]\nalias_file = "{alias_file}"\nsieve_file = "/dev/null"\n')
         rc = main(["generate", "--config", str(toml), "--stdout"])
         assert rc == 0
@@ -196,7 +196,7 @@ class TestCLIGenerate:
                 }
             )
         )
-        sieve_out = tmp_path / "mailfilter.sieve"
+        sieve_out = tmp_path / "autosieve.sieve"
         rc = main(["generate", str(alias_file), "--output", str(sieve_out)])
         assert rc == 0
         combined_text = sieve_out.read_text()
@@ -205,7 +205,7 @@ class TestCLIGenerate:
         # Envelope-compatible rule is expressed as a compact address block.
         assert '"alice"' in combined_text
         # No separate custom file is written.
-        custom_path = tmp_path / "mailfilter-custom.sieve"
+        custom_path = tmp_path / "autosieve-custom.sieve"
         assert not custom_path.exists()
 
     def test_generate_no_fallback_when_all_rules_match(self, tmp_path, capsys):
@@ -223,11 +223,11 @@ class TestCLIGenerate:
                 }
             )
         )
-        sieve_out = tmp_path / "mailfilter.sieve"
+        sieve_out = tmp_path / "autosieve.sieve"
         rc = main(["generate", str(alias_file), "--output", str(sieve_out)])
         assert rc == 0
         # No separate custom file is written.
-        custom_path = tmp_path / "mailfilter-custom.sieve"
+        custom_path = tmp_path / "autosieve-custom.sieve"
         assert not custom_path.exists()
 
 
@@ -238,10 +238,10 @@ class TestCLINoCommand:
 
 
 class TestCLIUpload:
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_success(self, mock_pw, mock_upload, sample_config_path, capsys):
-        mock_upload.return_value = [("mailfilter", True)]
+        mock_upload.return_value = [("autosieve", True)]
         rc = main(
             [
                 "generate",
@@ -259,8 +259,8 @@ class TestCLIUpload:
         err = capsys.readouterr().err
         assert "ManageSieve upload complete" in err
 
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_failure(self, mock_pw, mock_upload, sample_config_path, capsys):
         mock_upload.side_effect = Exception("connection refused")
         rc = main(
@@ -280,10 +280,10 @@ class TestCLIUpload:
         err = capsys.readouterr().err
         assert "Upload failed" in err
 
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_no_activate(self, mock_pw, mock_upload, sample_config_path, capsys):
-        mock_upload.return_value = [("mailfilter", False)]
+        mock_upload.return_value = [("autosieve", False)]
         rc = main(
             [
                 "generate",
@@ -301,10 +301,10 @@ class TestCLIUpload:
         )
         assert rc == 0
 
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_with_toml_config(self, mock_pw, mock_upload, sample_config_path, tmp_path, capsys):
-        toml = tmp_path / "mailfilter.toml"
+        toml = tmp_path / "autosieve.toml"
         toml.write_text('[managesieve]\nhost = "ms.test"\nport = 4190\nusername = "u"\npassword = "p"\n')
         mock_upload.return_value = []
         rc = main(["generate", str(sample_config_path), "--upload", "--config", str(toml)])
@@ -317,8 +317,8 @@ class TestCLIExtract:
             main(["extract", "--help"])
         assert exc_info.value.code == 0
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_basic_extract(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_imap = MagicMock()
         mock_conn.return_value = mock_imap
@@ -345,8 +345,8 @@ class TestCLIExtract:
         assert "rules" in data
         assert data["generation_mode"] == "envelope"
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_no_aliases(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {}
@@ -367,8 +367,8 @@ class TestCLIExtract:
         err = capsys.readouterr().err
         assert "No aliases found" in err
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_reports_no_new_aliases(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         existing = tmp_path / "aliases.json"
@@ -398,8 +398,8 @@ class TestCLIExtract:
         err = capsys.readouterr().err
         assert "No new aliases to add" in err
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_verbose_lists_aliases(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@test.com": {"To"}, "b@test.com": set()}
@@ -422,8 +422,8 @@ class TestCLIExtract:
         assert "found: a@test.com [To]" in err
         assert "found: b@test.com [(received-only)]" in err
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_then_generate_envelope_e2e(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {
@@ -458,8 +458,8 @@ class TestCLIExtract:
         assert 'fileinto "alias.${alias}";' in out
         assert 'fileinto "alias._other";' in out
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_multi_folder(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.side_effect = [
@@ -487,8 +487,8 @@ class TestCLIExtract:
         assert "a@test.com" in out
         assert "b@test.com" in out
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_dry_run(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@test.com": {"To"}}
@@ -510,8 +510,8 @@ class TestCLIExtract:
         out = capsys.readouterr().out
         assert "a@test.com" in out
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_dry_run_no_changes(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@test.com": {"To"}}
@@ -553,7 +553,7 @@ class TestCLIExtract:
         )
         assert rc2 == 0
 
-    @patch("mailfilter.cli.connect_imap")
+    @patch("autosieve.cli.connect_imap")
     def test_extract_connection_failure(self, mock_conn, capsys):
         mock_conn.side_effect = Exception("timeout")
         rc = main(
@@ -573,8 +573,8 @@ class TestCLIExtract:
         err = capsys.readouterr().err
         assert "IMAP connection failed" in err
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_failure(self, mock_extract, mock_conn, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.side_effect = Exception("IMAP error")
@@ -603,8 +603,8 @@ class TestCLIExtract:
         err = capsys.readouterr().err
         assert "Config error" in err
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_dry_run_with_diff(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         # First call: create an alias file.
@@ -619,18 +619,18 @@ class TestCLIExtract:
         out = capsys.readouterr().out
         assert "---" in out  # unified diff header
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_with_toml_config(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@co.com": {"To"}}
-        toml = tmp_path / "mailfilter.toml"
+        toml = tmp_path / "autosieve.toml"
         toml.write_text('[imap]\nhost = "mail.co"\nuser = "u"\ndomain = "co.com"\npassword = "pw"\n')
         rc = main(["extract", "--config", str(toml), "--stdout"])
         assert rc == 0
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_incremental(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@co.com": {"To"}}
@@ -653,8 +653,8 @@ class TestCLIExtract:
         err = capsys.readouterr().err
         assert "Incremental" in err
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_no_incremental(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@co.com": {"To"}}
@@ -678,8 +678,8 @@ class TestCLIExtract:
         err = capsys.readouterr().err
         assert "Incremental" not in err
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_since(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@co.com": {"To"}}
@@ -703,7 +703,7 @@ class TestCLIExtract:
 
 class TestPromptAndParseDate:
     def test_prompt(self, monkeypatch):
-        from mailfilter.cli import _prompt
+        from autosieve.cli import _prompt
 
         monkeypatch.setattr("sys.stdin", MagicMock())
         monkeypatch.setattr("builtins.input", lambda: "answer")
@@ -711,7 +711,7 @@ class TestPromptAndParseDate:
         assert result == "answer"
 
     def test_parse_date(self):
-        from mailfilter.cli import _parse_date
+        from autosieve.cli import _parse_date
 
         result = _parse_date("2025-06-15")
         assert result.year == 2025
@@ -720,12 +720,12 @@ class TestPromptAndParseDate:
 
 
 class TestCLIUploadCommand:
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_script_success(self, mock_pw, mock_upload, tmp_path, capsys):
-        script = tmp_path / "mailfilter.sieve"
+        script = tmp_path / "autosieve.sieve"
         script.write_text('require ["fileinto"];\n')
-        mock_upload.return_value = [("mailfilter", True)]
+        mock_upload.return_value = [("autosieve", True)]
         rc = main(["upload", str(script), "--host", "mail.test", "--username", "u", "--password", "pw"])
         assert rc == 0
         err = capsys.readouterr().err
@@ -740,9 +740,9 @@ class TestCLIUploadCommand:
 
 
 class TestCLIApplyCommand:
-    @patch("mailfilter.cli.apply_rules_imap", return_value={"alias.alice": 3})
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap", return_value={"alias.alice": 3})
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_dry_run(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
         mock_conn.return_value.__enter__ = lambda s: s
         mock_conn.return_value.__exit__ = MagicMock(return_value=False)
@@ -763,9 +763,9 @@ class TestCLIApplyCommand:
         err = capsys.readouterr().err
         assert "Would move" in err
 
-    @patch("mailfilter.cli.apply_rules_imap", return_value={})
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap", return_value={})
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_no_matches(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
         mock_conn.return_value.__enter__ = lambda s: s
         mock_conn.return_value.__exit__ = MagicMock(return_value=False)
@@ -799,8 +799,8 @@ class TestCLIMissingLines:
 
     def test_store_password_no_keyring_direct(self, monkeypatch, capsys):
         """store_in_keyring=True but keyring unavailable warns when password provided directly (line 126)."""
-        monkeypatch.setattr("mailfilter.cli._keyring", None)
-        from mailfilter.cli import resolve_password
+        monkeypatch.setattr("autosieve.cli._keyring", None)
+        from autosieve.cli import resolve_password
 
         pw = resolve_password(password="direct", keyring_service="svc", keyring_user="usr", store_in_keyring=True)
         assert pw == "direct"
@@ -809,9 +809,9 @@ class TestCLIMissingLines:
 
     def test_store_password_no_keyring_via_getpass(self, monkeypatch, capsys):
         """store_in_keyring=True but keyring unavailable warns when password comes from getpass (line 145)."""
-        monkeypatch.setattr("mailfilter.cli._keyring", None)
-        monkeypatch.setattr("mailfilter.cli.getpass.getpass", lambda prompt: "typed")
-        from mailfilter.cli import resolve_password
+        monkeypatch.setattr("autosieve.cli._keyring", None)
+        monkeypatch.setattr("autosieve.cli.getpass.getpass", lambda prompt: "typed")
+        from autosieve.cli import resolve_password
 
         pw = resolve_password(keyring_service="svc", keyring_user="usr", store_in_keyring=True)
         assert pw == "typed"
@@ -829,8 +829,8 @@ class TestCLIMissingLines:
 
     # -- _upload_script connection_security='none' warning (line 276) --
 
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_none_security_warns(self, mock_pw, mock_upload, sample_config_path, capsys):
         """generate --upload with --connection-security none prints warning (line 276)."""
         mock_upload.return_value = []
@@ -855,8 +855,8 @@ class TestCLIMissingLines:
 
     # -- extract command connection_security='none' warning (line 373) --
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_none_security_warns(self, mock_extract, mock_conn, tmp_path, capsys):
         """extract with --connection-security none prints warning (line 373)."""
         mock_conn.return_value = MagicMock()
@@ -882,12 +882,12 @@ class TestCLIMissingLines:
 
     # -- extract default output path via srv (line 387) --
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_output_from_srv_config(self, mock_extract, mock_conn, tmp_path, capsys):
         """extract without --alias-file uses srv.filenames.alias_file (line 387)."""
         alias_path = tmp_path / "from_config.json"
-        toml = tmp_path / "mailfilter.toml"
+        toml = tmp_path / "autosieve.toml"
         toml.write_text(f'[imap]\nhost = "mail.test"\nuser = "u"\ndomain = "test.com"\npassword = "pw"\n[filenames]\nalias_file = "{alias_path}"\n')
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {"a@test.com": {"To"}}
@@ -897,8 +897,8 @@ class TestCLIMissingLines:
 
     # -- extract existing alias file read error (lines 399-400) --
 
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.extract_aliases")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.extract_aliases")
     def test_extract_corrupt_existing_alias_file_warns(self, mock_extract, mock_conn, tmp_path, capsys):
         """extract with a corrupt existing alias file warns and continues (lines 399-400)."""
         corrupt = tmp_path / "corrupt.json"
@@ -937,13 +937,13 @@ class TestCLIMissingLines:
 
     # -- upload subcommand script_path from srv (lines 531-532) --
 
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_script_path_from_srv(self, mock_pw, mock_upload, tmp_path, capsys):
         """upload uses srv.filenames.sieve_file when no positional arg given (lines 531-532)."""
         script = tmp_path / "srv.sieve"
         script.write_text('require ["fileinto"];\n')
-        toml = tmp_path / "mailfilter.toml"
+        toml = tmp_path / "autosieve.toml"
         toml.write_text(f'[filenames]\nsieve_file = "{script}"\n[managesieve]\nhost = "ms.test"\nusername = "u"\npassword = "pw"\n')
         mock_upload.return_value = [("srv", True)]
         rc = main(["upload", "--config", str(toml)])
@@ -951,8 +951,8 @@ class TestCLIMissingLines:
 
     # -- upload subcommand default sieve file path (line 534) --
 
-    @patch("mailfilter.cli.upload_via_managesieve")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.upload_via_managesieve")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_upload_default_script_path(self, mock_pw, mock_upload, tmp_path, monkeypatch, capsys):
         """upload with no positional arg and no srv falls back to DEFAULT_SIEVE_FILE (line 534)."""
         monkeypatch.chdir(tmp_path)
@@ -992,9 +992,9 @@ class TestCLIMissingLines:
 
     # -- apply subcommand connection_security='none' warning (line 601) --
 
-    @patch("mailfilter.cli.apply_rules_imap", return_value={})
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap", return_value={})
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_none_security_warns(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
         """apply with --connection-security none prints warning (line 601)."""
         mock_conn.return_value = MagicMock()
@@ -1018,7 +1018,7 @@ class TestCLIMissingLines:
 
     # -- apply IMAP connection failure (lines 616-618) --
 
-    @patch("mailfilter.cli.connect_imap")
+    @patch("autosieve.cli.connect_imap")
     def test_apply_imap_connection_failure(self, mock_conn, sample_config_path, capsys):
         """apply with IMAP connection failure returns rc=1 (lines 616-618)."""
         mock_conn.side_effect = Exception("connection refused")
@@ -1040,9 +1040,9 @@ class TestCLIMissingLines:
 
     # -- apply progress callback with count > 0 (lines 625-627) --
 
-    @patch("mailfilter.cli.apply_rules_imap")
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_progress_reports_moves(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
         """apply prints per-folder move counts via progress callback (lines 625-627)."""
         mock_conn.return_value = MagicMock()
@@ -1074,9 +1074,9 @@ class TestCLIMissingLines:
 
     # -- apply_rules_imap raises exception (lines 638-640) --
 
-    @patch("mailfilter.cli.apply_rules_imap")
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_exception_returns_1(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
         """apply_rules_imap raising an exception returns rc=1 (lines 638-640)."""
         mock_conn.return_value = MagicMock()
@@ -1097,9 +1097,9 @@ class TestCLIMissingLines:
         err = capsys.readouterr().err
         assert "Apply failed" in err
 
-    @patch("mailfilter.cli.apply_rules_imap")
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_new_folders_hint(self, mock_pw, mock_conn, mock_apply, sample_config_path, capsys):
         """apply prints a mail-client refresh hint when new folders are created."""
         mock_conn.return_value = MagicMock()
@@ -1128,9 +1128,9 @@ class TestCLIMissingLines:
         assert "alias.newone" in err
         assert "refresh" in err.lower()
 
-    @patch("mailfilter.cli.apply_rules_imap")
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_subscribe_default_on(self, mock_pw, mock_conn, mock_apply, sample_config_path):
         """--subscribe is on by default: subscribe_folders=True is passed to apply_rules_imap."""
         mock_conn.return_value = MagicMock()
@@ -1139,9 +1139,9 @@ class TestCLIMissingLines:
         _, kwargs = mock_apply.call_args
         assert kwargs.get("subscribe_folders") is True
 
-    @patch("mailfilter.cli.apply_rules_imap")
-    @patch("mailfilter.cli.connect_imap")
-    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    @patch("autosieve.cli.apply_rules_imap")
+    @patch("autosieve.cli.connect_imap")
+    @patch("autosieve.cli.resolve_password", return_value="pw")
     def test_apply_no_subscribe_flag(self, mock_pw, mock_conn, mock_apply, sample_config_path):
         """--no-subscribe turns off subscribe_folders."""
         mock_conn.return_value = MagicMock()

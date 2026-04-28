@@ -2,7 +2,7 @@
 
 ## Overview
 
-mailfilter is a command-line tool that bridges IMAP mailboxes and Sieve mail
+autosieve is a command-line tool that bridges IMAP mailboxes and Sieve mail
 filtering.  It follows a **pipeline architecture**: data flows through
 discrete stages that can be run independently or chained together.
 
@@ -65,7 +65,7 @@ Implements a subset of the ManageSieve protocol (RFC 5804):
 
 ### server_config.py -- TOML configuration
 
-Loads server settings from a TOML file (`mailfilter.toml`).  Sections:
+Loads server settings from a TOML file (`autosieve.toml`).  Sections:
 `[imap]`, `[managesieve]`, `[filenames]`.
 
 ## Standards reference

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from mailfilter.config import Config, Rule
+from autosieve.config import Config, Rule
 
 
 def sieve_quote(value: str) -> str:
@@ -60,7 +60,7 @@ def partition_envelope_rules(rules: list[Rule], folder_prefix: str, sep: str = "
     matched via explicit header checks.
 
     Args:
-        rules: The full list of :class:`~mailfilter.config.Rule` objects.
+        rules: The full list of :class:`~autosieve.config.Rule` objects.
         folder_prefix: The leading path segment shared by all alias folders
             (e.g. ``"alias"``).
         sep: Folder hierarchy separator (default ``"/"``).
@@ -300,7 +300,7 @@ def generate_sieve(config: Config) -> str:
     """Generate a complete Sieve script from *config*.
 
     Dispatches to the appropriate generator based on
-    :attr:`~mailfilter.config.Config.generation_mode`:
+    :attr:`~autosieve.config.Config.generation_mode`:
 
     - ``"envelope"`` — uses :func:`generate_sieve_combined` which emits both
       the compact envelope+variables block and any fallback header rules in a

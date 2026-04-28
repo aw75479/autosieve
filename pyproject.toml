@@ -4,19 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autosieve"
-version = "0.1.0"
-description = "Generate Sieve scripts from JSON alias mappings, extract aliases from IMAP, and upload via ManageSieve."
+version = "0.2.0"
+description = "Multi-target Sieve script generation, IMAP alias extraction, ManageSieve upload, vacation/notify, custom filters and backups."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = ["keyring>=25.0"]
 
+[project.optional-dependencies]
+oauth2 = ["requests>=2.31"]
+
 [project.scripts]
-autosieve = "mailfilter.cli:main"
-mailfilter = "mailfilter.cli:main"
+autosieve = "autosieve.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mailfilter"]
+packages = ["src/autosieve"]
 
 [dependency-groups]
 dev = [
@@ -34,8 +36,8 @@ check-format = "ruff format --check src/ tests/"
 lint = "ruff check src/ tests/"
 test = "pytest"
 typecheck = "mypy src/"
-coverage = "pytest --cov=mailfilter --cov-report=term-missing tests/"
-doc = "pdoc --output-dir docs/api mailfilter"
+coverage = "pytest --cov=autosieve --cov-report=term-missing tests/"
+doc = "pdoc --output-dir docs/api autosieve"
 check = ["lint", "check-format", "typecheck", "test"]
 
 [tool.ruff]

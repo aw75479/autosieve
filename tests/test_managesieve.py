@@ -1,4 +1,4 @@
-"""Tests for mailfilter.managesieve using mocked sockets."""
+"""Tests for autosieve.managesieve using mocked sockets."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mailfilter.managesieve import ManageSieveClient, ManageSieveError
+from autosieve.managesieve import ManageSieveClient, ManageSieveError
 
 
 def _make_file(lines: list[str]) -> io.BytesIO:
@@ -42,7 +42,7 @@ class TestManageSieveClient:
         payload_len = len(text.encode("utf-8"))
         assert result.startswith(f"{{{payload_len}+}}\r\n")
 
-    @patch("mailfilter.managesieve.socket.create_connection")
+    @patch("autosieve.managesieve.socket.create_connection")
     def test_connect_greeting_fail(self, mock_conn):
         mock_sock = MagicMock()
         mock_conn.return_value = mock_sock
@@ -52,7 +52,7 @@ class TestManageSieveClient:
         with pytest.raises(ManageSieveError, match="unexpected greeting"):
             client.connect()
 
-    @patch("mailfilter.managesieve.socket.create_connection")
+    @patch("autosieve.managesieve.socket.create_connection")
     def test_connect_ok_plain(self, mock_conn):
         mock_sock = MagicMock()
         mock_conn.return_value = mock_sock
@@ -68,7 +68,7 @@ class TestManageSieveClient:
         client.connect()
         assert client.capabilities["SASL"] == "PLAIN"
 
-    @patch("mailfilter.managesieve.socket.create_connection")
+    @patch("autosieve.managesieve.socket.create_connection")
     def test_authenticate_plain_no_mechanism(self, mock_conn):
         mock_sock = MagicMock()
         mock_conn.return_value = mock_sock
@@ -258,7 +258,7 @@ class TestManageSieveClient:
         _lines, final = client.read_response_block()
         assert final[0] == "BYE"
 
-    @patch("mailfilter.managesieve.socket.create_connection")
+    @patch("autosieve.managesieve.socket.create_connection")
     def test_starttls(self, mock_conn):
         mock_sock = MagicMock()
         mock_conn.return_value = mock_sock
@@ -299,14 +299,14 @@ class TestManageSieveClient:
 
 
 class TestUploadViaManageSieve:
-    @patch("mailfilter.managesieve.ManageSieveClient")
+    @patch("autosieve.managesieve.ManageSieveClient")
     def test_basic(self, mock_cls):
         mock_client = MagicMock()
         mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_cls.return_value.__exit__ = MagicMock(return_value=False)
         mock_client.list_scripts.return_value = [("test", True)]
 
-        from mailfilter.managesieve import upload_via_managesieve
+        from autosieve.managesieve import upload_via_managesieve
 
         result = upload_via_managesieve(
             host="h",
@@ -326,14 +326,14 @@ class TestUploadViaManageSieve:
         mock_client.put_script.assert_called_once()
         mock_client.set_active.assert_called_once()
 
-    @patch("mailfilter.managesieve.ManageSieveClient")
+    @patch("autosieve.managesieve.ManageSieveClient")
     def test_no_check_no_activate(self, mock_cls):
         mock_client = MagicMock()
         mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_cls.return_value.__exit__ = MagicMock(return_value=False)
         mock_client.list_scripts.return_value = []
 
-        from mailfilter.managesieve import upload_via_managesieve
+        from autosieve.managesieve import upload_via_managesieve
 
         upload_via_managesieve(
             host="h",
@@ -366,7 +366,7 @@ class TestManageSieveMissingLines:
         mock_sock.close.assert_called_once()
         assert client.sock is None
 
-    @patch("mailfilter.managesieve.socket.create_connection")
+    @patch("autosieve.managesieve.socket.create_connection")
     def test_connect_ssl_wraps_socket(self, mock_create):
         """connect with connection_security='ssl' wraps the socket with TLS (lines 87-88)."""
         mock_raw = MagicMock()
@@ -382,7 +382,7 @@ class TestManageSieveMissingLines:
         mock_ctx.return_value.wrap_socket.assert_called_once_with(mock_raw, server_hostname="host")
         assert client.capabilities.get("SASL") == "PLAIN"
 
-    @patch("mailfilter.managesieve.socket.create_connection")
+    @patch("autosieve.managesieve.socket.create_connection")
     def test_connect_starttls_calls_starttls(self, mock_create):
         """connect with connection_security='starttls' calls starttls() (line 99)."""
         mock_sock = MagicMock()

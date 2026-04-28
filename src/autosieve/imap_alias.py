@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mailfilter.config import Config
+    from autosieve.config import Config
 
 _HEADER_PARSER = BytesHeaderParser()
 

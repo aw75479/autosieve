@@ -1,6 +1,6 @@
 # Advanced Features
 
-Possible future enhancements for mailfilter, roughly ordered by expected value.
+Possible future enhancements for autosieve, roughly ordered by expected value.
 
 ## High priority
 

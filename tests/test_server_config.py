@@ -1,8 +1,8 @@
-"""Tests for mailfilter.server_config."""
+"""Tests for autosieve.server_config."""
 
 from __future__ import annotations
 
-from mailfilter.server_config import load_server_config
+from autosieve.server_config import load_server_config
 
 
 class TestLoadServerConfig:
@@ -123,17 +123,17 @@ class TestLoadServerConfig:
 
 class TestParseSecurityHelper:
     def test_valid_ssl(self):
-        from mailfilter.server_config import _parse_security
+        from autosieve.server_config import _parse_security
 
         assert _parse_security("ssl", "imap") == "ssl"
 
     def test_valid_starttls(self):
-        from mailfilter.server_config import _parse_security
+        from autosieve.server_config import _parse_security
 
         assert _parse_security("STARTTLS", "imap") == "starttls"
 
     def test_valid_none(self):
-        from mailfilter.server_config import _parse_security
+        from autosieve.server_config import _parse_security
 
         assert _parse_security("none", "imap") == "none"
 
@@ -141,7 +141,7 @@ class TestParseSecurityHelper:
         """Invalid connection_security raises ValueError (line 92 in server_config.py)."""
         import pytest
 
-        from mailfilter.server_config import _parse_security
+        from autosieve.server_config import _parse_security
 
         with pytest.raises(ValueError, match="connection_security"):
             _parse_security("tls", "imap")

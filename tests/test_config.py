@@ -1,4 +1,4 @@
-"""Tests for mailfilter.config."""
+"""Tests for autosieve.config."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from mailfilter.config import (
+from autosieve.config import (
     Config,
     ConfigError,
     Rule,

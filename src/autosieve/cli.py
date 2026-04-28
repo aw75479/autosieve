@@ -11,8 +11,8 @@ from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from mailfilter.config import load_alias_config
-from mailfilter.imap_alias import (
+from autosieve.config import load_alias_config
+from autosieve.imap_alias import (
     apply_rules_imap,
     build_alias_mapping,
     collect_known_aliases,
@@ -26,9 +26,9 @@ from mailfilter.imap_alias import (
     update_last_fetched,
     write_alias_mapping,
 )
-from mailfilter.managesieve import upload_via_managesieve
-from mailfilter.server_config import load_server_config
-from mailfilter.sieve import generate_sieve
+from autosieve.managesieve import upload_via_managesieve
+from autosieve.server_config import load_server_config
+from autosieve.sieve import generate_sieve
 
 try:
     import keyring as _keyring  # type: ignore[import-not-found]
@@ -39,7 +39,7 @@ except ImportError:  # pragma: no cover
 # Module-level defaults (single source of truth for all hardcoded values)
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONFIG_FILE: Path = Path("mailfilter.toml")
+DEFAULT_CONFIG_FILE: Path = Path("autosieve.toml")
 """Auto-discovered server config file name."""
 
 DEFAULT_ALIAS_FILE: str = "aliases.json"
@@ -169,7 +169,7 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser("generate", help="Generate a Sieve script from a JSON alias file.")
     p.add_argument("alias_file", metavar="alias-file", nargs="?", type=Path, help="JSON alias file (default: from config or aliases.json)")
     p.add_argument("--config", type=Path, help="Server config TOML file")
-    p.add_argument("--output", type=Path, help="Output file (default: mailfilter.sieve)")
+    p.add_argument("--output", type=Path, help="Output file (default: autosieve.sieve)")
     p.add_argument("--stdout", action="store_true", help="Write to stdout instead of a file")
     p.add_argument("--script-name", help="Override script name from alias file")
     p.add_argument("--dry-run", action="store_true", help="Show diff against existing output without writing")
@@ -293,7 +293,7 @@ def _upload_script(
             host=host,
             port=port,
             username=username,
-            password=resolve_password(pw, keyring_service="mailfilter", keyring_user=kr_user, prompt=prompt_text, store_in_keyring=store_pw),
+            password=resolve_password(pw, keyring_service="autosieve", keyring_user=kr_user, prompt=prompt_text, store_in_keyring=store_pw),
             script_name=script_name,
             script_text=script_text,
             connection_security=connection_security,
@@ -402,7 +402,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     try:
         password = resolve_password(
             pw,
-            keyring_service="mailfilter",
+            keyring_service="autosieve",
             keyring_user=_keyring_key("imap", user, host),
             prompt="IMAP password: ",
             store_in_keyring=store_pw,
@@ -620,7 +620,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     try:
         password = resolve_password(
             pw,
-            keyring_service="mailfilter",
+            keyring_service="autosieve",
             keyring_user=_keyring_key("imap", user, host),
             prompt="IMAP password: ",
             store_in_keyring=store_pw,
@@ -689,7 +689,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point for the ``autosieve`` / ``mailfilter`` CLI.
+    """Entry point for the ``autosieve`` / ``autosieve`` CLI.
 
     Args:
         argv: Argument list (uses :data:`sys.argv` when ``None``).

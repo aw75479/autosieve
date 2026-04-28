@@ -1,4 +1,4 @@
-"""Tests for mailfilter.imap_alias."""
+"""Tests for autosieve.imap_alias."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mailfilter.imap_alias import (
+from autosieve.imap_alias import (
     _extract_addresses,
     _or_imap_search,
     apply_rules_imap,
@@ -372,7 +372,7 @@ class TestApplyRulesImap:
         return conn
 
     def _make_config(self, rules):
-        from mailfilter.config import Config
+        from autosieve.config import Config
 
         return Config(
             headers=["To"],
@@ -384,7 +384,7 @@ class TestApplyRulesImap:
         )
 
     def test_dry_run_no_move(self):
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"])
         conn = self._make_conn({"alice@example.com": [b"1", b"2"]})
@@ -397,7 +397,7 @@ class TestApplyRulesImap:
             assert call.args[0] not in ("MOVE", "COPY")
 
     def test_moves_messages(self):
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"])
         conn = self._make_conn({"alice@example.com": [b"1"]})
@@ -407,7 +407,7 @@ class TestApplyRulesImap:
         assert moved == {"alias.alice": 1}
 
     def test_no_match_returns_empty(self):
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["nobody@example.com"], folder="alias.nobody", headers=["To"])
         conn = self._make_conn({})
@@ -417,7 +417,7 @@ class TestApplyRulesImap:
         assert moved == {}
 
     def test_inactive_rule_skipped(self):
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"], active=False)
         conn = self._make_conn({"alice@example.com": [b"1"]})
@@ -427,7 +427,7 @@ class TestApplyRulesImap:
         assert moved == {}
 
     def test_progress_callback(self):
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["alice@example.com"], folder="alias.alice", headers=["To"])
         conn = self._make_conn({"alice@example.com": [b"1", b"2"]})
@@ -441,9 +441,9 @@ class TestApplyRulesImap:
 class TestConnectImap:
     """Tests for connect_imap covering all three connection_security modes (lines 55-63)."""
 
-    @patch("mailfilter.imap_alias.imaplib.IMAP4_SSL")
+    @patch("autosieve.imap_alias.imaplib.IMAP4_SSL")
     def test_ssl_mode(self, mock_ssl):
-        from mailfilter.imap_alias import connect_imap
+        from autosieve.imap_alias import connect_imap
 
         mock_conn = MagicMock()
         mock_ssl.return_value = mock_conn
@@ -452,9 +452,9 @@ class TestConnectImap:
         mock_conn.login.assert_called_once_with("user", "pass")
         assert result is mock_conn
 
-    @patch("mailfilter.imap_alias.imaplib.IMAP4")
+    @patch("autosieve.imap_alias.imaplib.IMAP4")
     def test_starttls_mode(self, mock_imap4):
-        from mailfilter.imap_alias import connect_imap
+        from autosieve.imap_alias import connect_imap
 
         mock_conn = MagicMock()
         mock_imap4.return_value = mock_conn
@@ -464,9 +464,9 @@ class TestConnectImap:
         mock_conn.login.assert_called_once_with("user", "pass")
         assert result is mock_conn
 
-    @patch("mailfilter.imap_alias.imaplib.IMAP4")
+    @patch("autosieve.imap_alias.imaplib.IMAP4")
     def test_none_mode(self, mock_imap4):
-        from mailfilter.imap_alias import connect_imap
+        from autosieve.imap_alias import connect_imap
 
         mock_conn = MagicMock()
         mock_imap4.return_value = mock_conn
@@ -515,7 +515,7 @@ class TestImapMoveMessages:
     def test_empty_uids_returns_immediately(self):
         """Empty uid list returns without any calls (line 372)."""
 
-        from mailfilter.imap_alias import _imap_move_messages
+        from autosieve.imap_alias import _imap_move_messages
 
         conn = MagicMock()
         _imap_move_messages(conn, [], "target")
@@ -525,7 +525,7 @@ class TestImapMoveMessages:
         """MOVE raising IMAP4.error falls back to COPY+STORE+EXPUNGE (lines 379-387)."""
         import imaplib
 
-        from mailfilter.imap_alias import _imap_move_messages
+        from autosieve.imap_alias import _imap_move_messages
 
         conn = MagicMock()
 
@@ -542,7 +542,7 @@ class TestImapMoveMessages:
 
     def test_move_returns_no_triggers_copy_fallback(self):
         """MOVE returning NO (not OK) falls back to COPY (lines 380-387)."""
-        from mailfilter.imap_alias import _imap_move_messages
+        from autosieve.imap_alias import _imap_move_messages
 
         conn = MagicMock()
 
@@ -561,7 +561,7 @@ class TestImapMoveMessages:
         """COPY failure raises IMAP4.error (lines 383-385)."""
         import imaplib
 
-        from mailfilter.imap_alias import _imap_move_messages
+        from autosieve.imap_alias import _imap_move_messages
 
         conn = MagicMock()
 
@@ -581,7 +581,7 @@ class TestApplyRulesImapMissingLines:
     """Tests for apply_rules_imap covering lines 434, 439-440, 446-448, 454-455."""
 
     def _make_config(self, rules):
-        from mailfilter.config import Config
+        from autosieve.config import Config
 
         return Config(
             headers=["To"],
@@ -594,7 +594,7 @@ class TestApplyRulesImapMissingLines:
 
     def test_empty_aliases_rule_skipped(self):
         """Rule with no aliases produces empty criteria_parts → skipped (line 434)."""
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=[], folder="alias.empty")
         config = self._make_config([rule])
@@ -608,7 +608,7 @@ class TestApplyRulesImapMissingLines:
         """SEARCH raising IMAP4.error causes the rule to be skipped (lines 439-440)."""
         import imaplib
 
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -620,7 +620,7 @@ class TestApplyRulesImapMissingLines:
 
     def test_no_uids_with_progress_callback(self):
         """Whitespace-only SEARCH result calls progress callback with 0 (lines 446-448)."""
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -635,7 +635,7 @@ class TestApplyRulesImapMissingLines:
     def test_create_folder_exception_suppressed(self):
         """Exception in create_imap_folder is suppressed; move continues."""
 
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -655,7 +655,7 @@ class TestApplyRulesImapMissingLines:
     def test_folder_created_callback_fires_for_new_folder(self):
         """folder_created callback is called when a folder is newly created."""
 
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -673,7 +673,7 @@ class TestApplyRulesImapMissingLines:
     def test_folder_created_callback_not_fired_for_existing_folder(self):
         """folder_created callback is NOT called when the folder already existed."""
 
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -691,7 +691,7 @@ class TestApplyRulesImapMissingLines:
     def test_folder_created_callback_not_fired_twice_for_same_folder(self):
         """folder_created fires at most once per folder even across multiple source folders."""
 
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -720,7 +720,7 @@ class TestSubscribeImapFolder:
 
     def test_subscribe_calls_conn_subscribe(self):
         """subscribe_imap_folder calls conn.subscribe with the folder name."""
-        from mailfilter.imap_alias import subscribe_imap_folder
+        from autosieve.imap_alias import subscribe_imap_folder
 
         conn = MagicMock()
         conn.subscribe.return_value = ("OK", [b"subscribed"])
@@ -729,7 +729,7 @@ class TestSubscribeImapFolder:
 
     def test_subscribe_exception_suppressed(self):
         """subscribe_imap_folder silently ignores exceptions (best-effort)."""
-        from mailfilter.imap_alias import subscribe_imap_folder
+        from autosieve.imap_alias import subscribe_imap_folder
 
         conn = MagicMock()
         conn.subscribe.side_effect = Exception("server error")
@@ -741,7 +741,7 @@ class TestApplyRulesImapSubscribe:
     """Test subscribe_folders parameter in apply_rules_imap (line 492)."""
 
     def _make_config(self, rules):
-        from mailfilter.config import Config
+        from autosieve.config import Config
 
         return Config(
             headers=["To"],
@@ -754,7 +754,7 @@ class TestApplyRulesImapSubscribe:
 
     def test_subscribe_called_for_new_folder(self):
         """subscribe_imap_folder is called when subscribe_folders=True and folder is new."""
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -770,7 +770,7 @@ class TestApplyRulesImapSubscribe:
 
     def test_subscribe_not_called_when_false(self):
         """subscribe_imap_folder is NOT called when subscribe_folders=False."""
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])
@@ -786,7 +786,7 @@ class TestApplyRulesImapSubscribe:
 
     def test_subscribe_not_called_for_existing_folder(self):
         """subscribe_imap_folder is NOT called when folder already existed (ALREADYEXISTS)."""
-        from mailfilter.config import Rule
+        from autosieve.config import Rule
 
         rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
         config = self._make_config([rule])

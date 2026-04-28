@@ -1,10 +1,10 @@
 # Security
 
-This document describes the security considerations for mailfilter.
+This document describes the security considerations for autosieve.
 
 ## Threat Model
 
-mailfilter handles email credentials (IMAP and ManageSieve passwords) and
+autosieve handles email credentials (IMAP and ManageSieve passwords) and
 generates Sieve scripts that are uploaded to mail servers.  The primary threats
 are:
 
@@ -28,11 +28,11 @@ are:
   pipelines).  In that case the password may appear in the process argument
   list.  For sensitive environments, prefer entering the password interactively
   or storing it in the system keyring.
-- **Keyring support** (optional): install `keyring` (`pip install mailfilter[keyring]`)
+- **Keyring support** (optional): install `keyring` (`pip install autosieve[keyring]`)
   to store and retrieve passwords from the OS keychain (macOS Keychain,
   Windows Credential Vault, Linux Secret Service / KWallet).  Use
   `--store-password` to save a password to the keyring on first use.
-- `mailfilter.toml` is listed in `.gitignore` by default so credentials are
+- `autosieve.toml` is listed in `.gitignore` by default so credentials are
   not accidentally committed.
 
 ### Authentication limitations
@@ -48,7 +48,7 @@ More advanced mechanisms supported by Thunderbird and other clients are
 - NTLM, Kerberos / GSSAPI
 - OAuth2 (XOAUTH2, OAUTHBEARER) -- required by Gmail and Microsoft 365
 
-For servers that require OAuth2, mailfilter cannot be used directly.
+For servers that require OAuth2, autosieve cannot be used directly.
 
 **Never use PLAIN/LOGIN without TLS** -- credentials would be sent in clear
 text.  `connection_security = "none"` disables encryption entirely and should
@@ -102,10 +102,10 @@ break out of a Sieve quoted string context.
 
 ## Recommendations for operators
 
-1. **Protect `mailfilter.toml`** with restrictive file permissions
+1. **Protect `autosieve.toml`** with restrictive file permissions
    (`chmod 600`) if it contains passwords.
 2. **Use the system keyring** (`--store-password`) instead of storing
-   passwords in `mailfilter.toml` when possible.
+   passwords in `autosieve.toml` when possible.
 3. **Use TLS security modes** (`"auto"`, `"ssl"`, or `"starttls"`) for production mail
    servers.
 4. **Avoid `connection_security = "none"`** in production.  It disables

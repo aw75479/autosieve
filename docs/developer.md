@@ -9,14 +9,14 @@
 
 ```bash
 git clone <repository-url>
-cd mailfilter
+cd autosieve
 uv sync          # installs all dependencies including dev tools
 ```
 
 ## Project structure
 
 ```
-src/mailfilter/
+src/autosieve/
     cli.py            # CLI entry point, argument parsing, subcommands
     config.py         # Rule/Config dataclasses, JSON loading, validation
     imap_alias.py     # IMAP alias extraction, alias-file I/O, merging
@@ -53,7 +53,7 @@ via `uv run poe <task>`:
 | `poe lint`      | `ruff check src/ tests/`                  | Lint with ruff               |
 | `poe test`      | `pytest`                                  | Run tests                    |
 | `poe typecheck` | `mypy src/`                               | Static type checking         |
-| `poe coverage`  | `pytest --cov=mailfilter --cov-report=term-missing` | Test coverage report |
+| `poe coverage`  | `pytest --cov=autosieve --cov-report=term-missing` | Test coverage report |
 | `poe check`     | lint + check-format + typecheck + test    | Full CI check                |
 
 Quick iteration loop:
@@ -67,11 +67,11 @@ uv run poe format && uv run poe check
 Copy the template and edit:
 
 ```bash
-cp mailfilter.template.toml mailfilter.toml
-# edit mailfilter.toml with your server details
+cp autosieve.template.toml autosieve.toml
+# edit autosieve.toml with your server details
 ```
 
-`mailfilter.toml` is auto-loaded from the current directory when `--config`
+`autosieve.toml` is auto-loaded from the current directory when `--config`
 is not specified.  It is listed in `.gitignore` to prevent committing
 credentials.
 
@@ -79,13 +79,13 @@ credentials.
 
 ```bash
 # Extract aliases from IMAP
-uv run mailfilter extract-aliases
+uv run autosieve extract-aliases
 
-# Generate sieve script (writes to mailfilter.sieve by default)
-uv run mailfilter generate aliases.json
+# Generate sieve script (writes to autosieve.sieve by default)
+uv run autosieve generate aliases.json
 
 # Generate and upload
-uv run mailfilter generate aliases.json --upload
+uv run autosieve generate aliases.json --upload
 ```
 
 ## Testing conventions
@@ -100,7 +100,7 @@ uv run mailfilter generate aliases.json --upload
 
 ## Adding a new module
 
-1. Create `src/mailfilter/newmodule.py`.
+1. Create `src/autosieve/newmodule.py`.
 2. Create `tests/test_newmodule.py`.
 3. Import from `cli.py` if needed.
 4. Run `uv run poe check` to verify.
@@ -110,7 +110,7 @@ uv run mailfilter generate aliases.json --upload
 - Line length: 160 characters (enforced by ruff, ruler visible in VS Code).
 - Python 3.11+ features are encouraged (`tomllib`, `match`, type unions).
 - No runtime dependencies beyond the standard library.  `keyring` is an
-  optional dependency (`pip install mailfilter[keyring]`).
+  optional dependency (`pip install autosieve[keyring]`).
 - Ruff rules: E, W, F, I, N, UP, B, SIM, S, T20, RUF (see `pyproject.toml`).
 
 ## Release process

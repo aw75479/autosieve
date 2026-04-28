@@ -9,7 +9,7 @@ import ssl
 from collections.abc import Sequence
 from typing import Any
 
-from mailfilter.sieve import sieve_quote
+from autosieve.sieve import sieve_quote
 
 
 class ManageSieveError(RuntimeError):

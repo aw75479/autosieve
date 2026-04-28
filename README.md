@@ -8,9 +8,9 @@ Generate Sieve scripts from JSON alias mappings, extract email aliases from IMAP
 
 ```bash
 uv sync
-cp mailfilter.template.toml mailfilter.toml   # edit with your server details
+cp autosieve.template.toml autosieve.toml   # edit with your server details
 uv run autosieve extract-aliases               # scan IMAP and write aliases.json
-uv run autosieve generate aliases.json         # generate mailfilter.sieve
+uv run autosieve generate aliases.json         # generate autosieve.sieve
 uv run autosieve upload                        # upload existing sieve file
 ```
 
@@ -19,10 +19,10 @@ uv run autosieve upload                        # upload existing sieve file
 Copy the template and edit:
 
 ```bash
-cp mailfilter.template.toml mailfilter.toml
+cp autosieve.template.toml autosieve.toml
 ```
 
-`mailfilter.toml` is **auto-loaded** from the current directory. Use `--config path/to/other.toml` to override.
+`autosieve.toml` is **auto-loaded** from the current directory. Use `--config path/to/other.toml` to override.
 
 ```toml
 [imap]
@@ -43,7 +43,7 @@ folder_prefix = "alias"          # aliases sorted into <prefix>/<local-part>
 # authz_id = ""                  # SASL authorization identity (RFC 4616)
 
 [filenames]
-sieve_file = "mailfilter.sieve"  # default output for 'generate'
+sieve_file = "autosieve.sieve"  # default output for 'generate'
 alias_file = "aliases.json"      # default output for 'extract-aliases'
 ```
 
@@ -81,7 +81,7 @@ Options:
 |------|-------------|
 | `server` | IMAP server as host or host:port (positional, from config or prompted) |
 | `alias-file` | JSON alias file to write/update (positional, default: `aliases.json`) |
-| `--config` | Server config TOML file (default: auto-load `mailfilter.toml`) |
+| `--config` | Server config TOML file (default: auto-load `autosieve.toml`) |
 | `--user` | IMAP username (prompted if omitted) |
 | `--domain` | Only extract aliases matching this domain (prompted if omitted) |
 | `--folder` | IMAP folder(s) to scan (default: INBOX). May specify multiple. |
@@ -131,7 +131,7 @@ Per-rule `headers` override the global setting. Rules without `headers` match ag
 uv run autosieve generate aliases.json
 ```
 
-Output is written to `mailfilter.sieve` by default (configurable in `[filenames]`). Use `--stdout` to print to stdout, or `--output custom.sieve` to specify a file.
+Output is written to `autosieve.sieve` by default (configurable in `[filenames]`). Use `--stdout` to print to stdout, or `--output custom.sieve` to specify a file.
 
 ### 4. Upload via ManageSieve
 
@@ -152,8 +152,8 @@ Options for `generate`:
 | Flag | Description |
 |------|-------------|
 | `alias-file` | JSON alias file (positional, required) |
-| `--config` | Server config TOML file (default: auto-load `mailfilter.toml`) |
-| `--output` | Output file (default: `mailfilter.sieve`) |
+| `--config` | Server config TOML file (default: auto-load `autosieve.toml`) |
+| `--output` | Output file (default: `autosieve.sieve`) |
 | `--stdout` | Write to stdout instead of a file |
 | `--script-name` | Override script name from alias file |
 | `--host` | ManageSieve host[:port] (default port: 4190, prompted if omitted) |
@@ -171,7 +171,7 @@ Options for `upload`:
 |------|-------------|
 | `script-file` | Sieve file to upload (positional, defaults to configured `sieve_file`) |
 | `--script-name` | Script name on server (default: file stem) |
-| `--config` | Server config TOML file (default: auto-load `mailfilter.toml`) |
+| `--config` | Server config TOML file (default: auto-load `autosieve.toml`) |
 | `--host` | ManageSieve host[:port] (default port: 4190, prompted if omitted) |
 | `--username` | ManageSieve username (prompted if omitted) |
 | `--connection-security` | auto / ssl / starttls / none |

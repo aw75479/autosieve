@@ -568,6 +568,19 @@ def _add_apply_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--dry-run", action="store_true", help="Show what would be moved without actually moving")
     p.add_argument("--no-create", action="store_true", help="Do not create target folders if they do not exist")
+    p.add_argument(
+        "--subscribe",
+        action="store_true",
+        default=True,
+        dest="subscribe",
+        help="Subscribe to newly created folders so mail clients show them automatically (default: on)",
+    )
+    p.add_argument(
+        "--no-subscribe",
+        action="store_false",
+        dest="subscribe",
+        help="Do not subscribe to newly created folders",
+    )
     _add_password_args(p)
     p.set_defaults(func=_cmd_apply)
 
@@ -638,6 +651,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             folders,
             dry_run=args.dry_run,
             create_folders=not args.no_create,
+            subscribe_folders=args.subscribe and not args.no_create,
             progress=_progress,
             folder_created=_folder_created,
         )

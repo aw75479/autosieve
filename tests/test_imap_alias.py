@@ -713,3 +713,89 @@ class TestApplyRulesImapMissingLines:
             folder_created=lambda f: created.append(f),
         )
         assert created == ["alias.a"]  # only once, not twice
+
+
+class TestSubscribeImapFolder:
+    """Tests for subscribe_imap_folder (lines 366-369)."""
+
+    def test_subscribe_calls_conn_subscribe(self):
+        """subscribe_imap_folder calls conn.subscribe with the folder name."""
+        from mailfilter.imap_alias import subscribe_imap_folder
+
+        conn = MagicMock()
+        conn.subscribe.return_value = ("OK", [b"subscribed"])
+        subscribe_imap_folder(conn, "alias.test")
+        conn.subscribe.assert_called_once_with("alias.test")
+
+    def test_subscribe_exception_suppressed(self):
+        """subscribe_imap_folder silently ignores exceptions (best-effort)."""
+        from mailfilter.imap_alias import subscribe_imap_folder
+
+        conn = MagicMock()
+        conn.subscribe.side_effect = Exception("server error")
+        # Must not raise.
+        subscribe_imap_folder(conn, "alias.test")
+
+
+class TestApplyRulesImapSubscribe:
+    """Test subscribe_folders parameter in apply_rules_imap (line 492)."""
+
+    def _make_config(self, rules):
+        from mailfilter.config import Config
+
+        return Config(
+            headers=["To"],
+            use_create=True,
+            script_name="test",
+            explicit_keep=False,
+            match_type="is",
+            rules=rules,
+        )
+
+    def test_subscribe_called_for_new_folder(self):
+        """subscribe_imap_folder is called when subscribe_folders=True and folder is new."""
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.uid.side_effect = [
+            ("OK", [b"1"]),  # SEARCH
+            ("OK", [b""]),  # MOVE
+        ]
+        conn.create.return_value = ("OK", [b"created"])
+        apply_rules_imap(conn, config, ["INBOX"], create_folders=True, subscribe_folders=True)
+        conn.subscribe.assert_called_once_with("alias.a")
+
+    def test_subscribe_not_called_when_false(self):
+        """subscribe_imap_folder is NOT called when subscribe_folders=False."""
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.uid.side_effect = [
+            ("OK", [b"1"]),  # SEARCH
+            ("OK", [b""]),  # MOVE
+        ]
+        conn.create.return_value = ("OK", [b"created"])
+        apply_rules_imap(conn, config, ["INBOX"], create_folders=True, subscribe_folders=False)
+        conn.subscribe.assert_not_called()
+
+    def test_subscribe_not_called_for_existing_folder(self):
+        """subscribe_imap_folder is NOT called when folder already existed (ALREADYEXISTS)."""
+        from mailfilter.config import Rule
+
+        rule = Rule(aliases=["a@b.com"], folder="alias.a", headers=["To"])
+        config = self._make_config([rule])
+        conn = MagicMock()
+        conn.select.return_value = ("OK", [b"5"])
+        conn.uid.side_effect = [
+            ("OK", [b"1"]),  # SEARCH
+            ("OK", [b""]),  # MOVE
+        ]
+        conn.create.return_value = ("NO", [b"[ALREADYEXISTS] already exists"])
+        apply_rules_imap(conn, config, ["INBOX"], create_folders=True, subscribe_folders=True)
+        conn.subscribe.assert_not_called()

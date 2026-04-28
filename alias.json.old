@@ -1,0 +1,359 @@
+{
+  "script_name": "alias-router",
+  "headers": [
+    "X-Original-To",
+    "Delivered-To"
+  ],
+  "use_create": true,
+  "match_type": "is",
+  "rules": [
+    {
+      "folder": "alias.aicamp",
+      "alias": "aicamp@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.aidbnewyear",
+      "alias": "aidbnewyear@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.aimeetup",
+      "alias": "aimeetup@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.apple",
+      "alias": "apple@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.dev.aws",
+      "alias": "aws@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.bauhaus",
+      "alias": "bauhaus@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.bliss",
+      "alias": "bliss@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.bpw",
+      "alias": "bpw@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.chatgpt",
+      "alias": "chatgpt@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.fritz",
+      "alias": "fritz@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.funktionelles",
+      "alias": "funktionelles.shop@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.globus-baumarkt",
+      "alias": "globus-baumarkt@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.dev.googlecloud",
+      "alias": "googlecloud@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.gruenderplattform",
+      "alias": "gruenderplattform@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.gstar",
+      "alias": "gstar@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.gstar",
+      "alias": "gstar2@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.hetzner",
+      "alias": "hetzner@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.homeconnect",
+      "alias": "homeconnect@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.huk24",
+      "alias": "huk24@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.locationiq",
+      "alias": "locationiq@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.logitel",
+      "alias": "logitel@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.logitel",
+      "alias": "logitell@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.luma",
+      "alias": "luma@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.medium",
+      "alias": "medium@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.meetup",
+      "alias": "meetup@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.miro",
+      "alias": "miro@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.nvidia",
+      "alias": "nvidia@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.o2",
+      "alias": "o2@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.obi",
+      "alias": "obi@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.openagenda",
+      "alias": "openagenda@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.peekcloppenburg",
+      "alias": "peekcloppenburg@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.penny",
+      "alias": "penny@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.perplexity",
+      "alias": "perplexity@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "aliaspicsart",
+      "alias": "picsart@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.proshop",
+      "alias": "proshop@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.rasppishop",
+      "alias": "rasppishop@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.rawbite",
+      "alias": "rawbite@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.reichelt",
+      "alias": "reichelt@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.shops.seagate",
+      "alias": "seagate@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.smartthings",
+      "alias": "smartthings@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.spiegel",
+      "alias": "spiegel@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.telekom",
+      "alias": "telekom@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.test",
+      "alias": "test@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.tischreservierung",
+      "alias": "tischreservierung@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.ups",
+      "alias": "ups@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.uwd",
+      "alias": "uwd@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.vhs",
+      "alias": "vhs@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.voebb",
+      "alias": "voebb@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    },
+    {
+      "folder": "alias.dev.huggingface",
+      "alias": "dev.huggingface@a.wege.eu",
+      "headers": [
+        "To"
+      ]
+    }
+  ],
+  "last_fetched": "2026-04-27",
+  "generation_mode": "envelope",
+  "folder_prefix": "alias",
+  "catch_all_folder": "alias._other",
+  "folder_sep": "."
+}

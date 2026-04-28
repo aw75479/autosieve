@@ -427,9 +427,9 @@ class TestCLIExtract:
     def test_extract_then_generate_envelope_e2e(self, mock_extract, mock_conn, tmp_path, capsys):
         mock_conn.return_value = MagicMock()
         mock_extract.return_value = {
-            "aicamp@a.wege.eu": {"To"},
-            "aws@a.wege.eu": {"To"},
-            "apple@a.wege.eu": {"To"},
+            "aicamp@example.com": {"To"},
+            "aws@example.com": {"To"},
+            "apple@example.com": {"To"},
         }
         alias_file = tmp_path / "aliases.json"
         rc_extract = main(
@@ -440,7 +440,7 @@ class TestCLIExtract:
                 "--user",
                 "u",
                 "--domain",
-                "a.wege.eu",
+                "example.com",
                 "--password",
                 "pw",
             ]
@@ -451,7 +451,7 @@ class TestCLIExtract:
         assert rc_generate == 0
         out = capsys.readouterr().out
         assert 'require ["fileinto", "variables"];' in out
-        assert 'address :domain :is "To" "a.wege.eu"' in out
+        assert 'address :domain :is "To" "example.com"' in out
         assert '"aicamp"' in out
         assert '"apple"' in out
         assert '"aws"' in out
@@ -1127,3 +1127,37 @@ class TestCLIMissingLines:
         err = capsys.readouterr().err
         assert "alias.newone" in err
         assert "refresh" in err.lower()
+
+    @patch("mailfilter.cli.apply_rules_imap")
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    def test_apply_subscribe_default_on(self, mock_pw, mock_conn, mock_apply, sample_config_path):
+        """--subscribe is on by default: subscribe_folders=True is passed to apply_rules_imap."""
+        mock_conn.return_value = MagicMock()
+        mock_apply.return_value = {}
+        main(["apply", str(sample_config_path), "--host", "mail.test", "--user", "u", "--password", "pw"])
+        _, kwargs = mock_apply.call_args
+        assert kwargs.get("subscribe_folders") is True
+
+    @patch("mailfilter.cli.apply_rules_imap")
+    @patch("mailfilter.cli.connect_imap")
+    @patch("mailfilter.cli.resolve_password", return_value="pw")
+    def test_apply_no_subscribe_flag(self, mock_pw, mock_conn, mock_apply, sample_config_path):
+        """--no-subscribe turns off subscribe_folders."""
+        mock_conn.return_value = MagicMock()
+        mock_apply.return_value = {}
+        main(
+            [
+                "apply",
+                str(sample_config_path),
+                "--host",
+                "mail.test",
+                "--user",
+                "u",
+                "--password",
+                "pw",
+                "--no-subscribe",
+            ]
+        )
+        _, kwargs = mock_apply.call_args
+        assert kwargs.get("subscribe_folders") is False

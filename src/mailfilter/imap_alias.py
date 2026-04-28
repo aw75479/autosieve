@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import email.utils
 import imaplib
 import json
@@ -355,6 +356,18 @@ def create_imap_folder(conn: imaplib.IMAP4 | imaplib.IMAP4_SSL, folder: str) -> 
     raise imaplib.IMAP4.error(f"CREATE {folder!r} failed: {msg}")
 
 
+def subscribe_imap_folder(conn: imaplib.IMAP4 | imaplib.IMAP4_SSL, folder: str) -> None:
+    """Subscribe to *folder* on the IMAP server.
+
+    Subscribing makes the folder appear in mail clients that only show
+    subscribed folders (e.g. Thunderbird with default settings).  Errors are
+    silently ignored because subscription state is cosmetic and must not block
+    message delivery.
+    """
+    with contextlib.suppress(Exception):
+        conn.subscribe(folder)  # type: ignore[attr-defined]
+
+
 def _or_imap_search(*parts: str) -> str:
     """Build a nested IMAP OR expression from two or more search-key strings.
 
@@ -407,6 +420,7 @@ def apply_rules_imap(
     *,
     dry_run: bool = False,
     create_folders: bool = True,
+    subscribe_folders: bool = False,
     progress: Callable[[str, int], None] | None = None,
     folder_created: Callable[[str], None] | None = None,
 ) -> dict[str, int]:
@@ -422,6 +436,9 @@ def apply_rules_imap(
         source_folders: IMAP folders to scan (e.g. ``["INBOX"]``).
         dry_run: When ``True``, count matches only without moving.
         create_folders: When ``True``, create target folders that don't exist.
+        subscribe_folders: When ``True``, SUBSCRIBE to newly created folders so
+            that mail clients (e.g. Thunderbird) show them without requiring a
+            manual subscribe step.
         progress: Optional callback ``(target_folder, matched_count)`` called
             after processing each rule per source folder.
         folder_created: Optional callback ``(folder_name)`` called once per
@@ -469,8 +486,11 @@ def apply_rules_imap(
                 if create_folders and rule.folder not in known_folders:
                     try:
                         was_created = create_imap_folder(conn, rule.folder)
-                        if was_created and folder_created:
-                            folder_created(rule.folder)
+                        if was_created:
+                            if subscribe_folders:
+                                subscribe_imap_folder(conn, rule.folder)
+                            if folder_created:
+                                folder_created(rule.folder)
                     except Exception:
                         pass  # genuine CREATE error; attempt move anyway
                 known_folders.add(rule.folder)

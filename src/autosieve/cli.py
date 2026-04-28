@@ -747,6 +747,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     _add_extract_parser(subparsers)
     _add_upload_parser(subparsers)
     _add_apply_parser(subparsers)
+
+    # Optional sub-commands -- each module is independent and removable.
+    # importlib (rather than `from ... import`) keeps mypy happy when a
+    # given module file has been deleted, and the ModuleNotFoundError is
+    # caught so the rest of the CLI keeps working.
+    import importlib
+
+    for _modname in ("sync", "backup", "restore"):
+        try:
+            _mod = importlib.import_module(f"autosieve.commands.{_modname}")
+        except ModuleNotFoundError:  # pragma: no cover - optional module absent
+            continue
+        _mod.register(subparsers)
     return parser
 
 

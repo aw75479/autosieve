@@ -188,6 +188,61 @@ class ManageSieveClient:
             scripts.append((name, active))
         return scripts
 
+    def get_script(self, script_name: str) -> str:
+        """Download the body of *script_name* from the server.
+
+        The ManageSieve ``GETSCRIPT`` reply uses a literal block
+        (``{N+}\r\n<bytes>``) which may contain embedded ``\r\n`` and so
+        cannot be parsed line-by-line.  This method reads the literal as a
+        contiguous byte slice to avoid corrupting backups.
+
+        Raises:
+            :class:`ManageSieveError`: If the server rejects the request or
+                returns a malformed response.
+        """
+        if self.file is None:
+            raise ManageSieveError("not connected")
+        self.send_command(f"GETSCRIPT {sieve_quote(script_name)}")
+        first = self._read_line_text()
+        # The server may return NO immediately for unknown scripts.
+        upper = first.upper()
+        if upper.startswith("NO"):
+            raise ManageSieveError(f"GETSCRIPT failed: {first}")
+        if upper.startswith("OK"):
+            # Empty script body.
+            return ""
+        # Expect a literal: {N} or {N+}
+        match = re.match(r"^\{(\d+)\+?\}$", first.strip())
+        if not match:
+            # Some servers may send the body as a quoted string.
+            if first.startswith('"') and first.endswith('"'):
+                # Quoted literal cannot contain raw newlines per RFC.
+                # Read the trailing OK/NO line.
+                _, final = self.read_response_block()
+                if final[0] != "OK":
+                    raise ManageSieveError(f"GETSCRIPT failed: {final}")
+                return first[1:-1].encode("utf-8").decode("unicode_escape")
+            raise ManageSieveError(f"GETSCRIPT: unexpected response {first!r}")
+        nbytes = int(match.group(1))
+        body = self.file.read(nbytes).decode("utf-8", errors="replace")
+        # Consume the trailing line break and final OK/NO.
+        _ = self.file.readline()  # consume CRLF after literal payload
+        _, final = self.read_response_block()
+        if final[0] != "OK":
+            raise ManageSieveError(f"GETSCRIPT failed: {final}")
+        return body
+
+    def delete_script(self, script_name: str) -> None:
+        """Remove *script_name* from the server.
+
+        Raises:
+            :class:`ManageSieveError`: On a server error response.
+        """
+        self.send_command(f"DELETESCRIPT {sieve_quote(script_name)}")
+        _, final = self.read_response_block()
+        if final[0] != "OK":
+            raise ManageSieveError(f"DELETESCRIPT failed: {final}")
+
     def send_command(self, command: str, raw: bool = False) -> None:
         """Write *command* to the server socket.
 

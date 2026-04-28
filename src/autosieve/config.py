@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ class Rule:
     comment: str | None = None
     headers: list[str] | None = None
     active: bool = True
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -85,7 +86,17 @@ def _merge_rules_by_folder(rules: list[Rule]) -> list[Rule]:
                 comment=rule.comment,
                 headers=list(rule.headers) if rule.headers else None,
                 active=rule.active,
+                tags=list(rule.tags),
             )
+    # Merge tags from later rules into the existing rule.
+    for r in rules:
+        if r.folder in by_folder and by_folder[r.folder] is not r:
+            existing = by_folder[r.folder]
+            seen_t = set(existing.tags)
+            for t in r.tags:
+                if t not in seen_t:
+                    existing.tags.append(t)
+                    seen_t.add(t)
     return [by_folder[f] for f in folder_order]
 
 
@@ -138,6 +149,11 @@ def _normalize_rules(raw_rules: Any) -> list[Rule]:
         if not isinstance(active, bool):
             active = True
 
+        tags_raw = item.get("tags")
+        tags: list[str] = []
+        if isinstance(tags_raw, list):
+            tags = [str(t).strip() for t in tags_raw if isinstance(t, str) and t.strip()]
+
         rules.append(
             Rule(
                 aliases=aliases,
@@ -145,6 +161,7 @@ def _normalize_rules(raw_rules: Any) -> list[Rule]:
                 comment=comment.strip() if isinstance(comment, str) and comment.strip() else None,
                 headers=rule_headers,
                 active=active,
+                tags=tags,
             )
         )
 

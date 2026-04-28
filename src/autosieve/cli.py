@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import difflib
 import getpass
+import importlib
 import sys
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
@@ -216,6 +217,7 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument("--output", type=Path, help="Output file (default: autosieve.sieve)")
     p.add_argument("--stdout", action="store_true", help="Write to stdout instead of a file")
     p.add_argument("--script-name", help="Override script name from alias file")
+    p.add_argument("--tag", help="Only include rules whose 'tags' list contains this tag")
     p.add_argument("--dry-run", action="store_true", help="Show diff against existing output without writing")
 
     upload = p.add_argument_group("ManageSieve upload (only with --upload)")
@@ -263,7 +265,47 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     if args.script_name:
         config.script_name = args.script_name.strip()
 
+    # Tag filter (P8): keep only rules whose tag list contains --tag if set.
+    tag_filter = getattr(args, "tag", None)
+    if tag_filter:
+        config.rules = [r for r in config.rules if tag_filter in getattr(r, "tags", [])]
+
     script_text = generate_sieve(config)
+
+    # Optional feature post-processors -- each module under
+    # autosieve.features/ is independent and removable. A missing module
+    # silently disables that feature.
+    if srv is not None:
+        target_obj = srv.get_target()
+        try:
+            from autosieve.features import merge_features
+
+            extra_blocks: list[str] = []
+            extra_caps: set[str] = set()
+            for _modname in (
+                "autosieve.features.tags",
+                "autosieve.features.custom_filters",
+                "autosieve.features.vacation",
+                "autosieve.features.notify",
+            ):
+                try:
+                    _mod = importlib.import_module(_modname)
+                except ModuleNotFoundError:
+                    continue
+                emit = getattr(_mod, "emit_sieve", None)
+                if emit is None:
+                    continue
+                result = emit(target_obj, config)
+                if result is None:
+                    continue
+                blk, caps = result
+                if blk:
+                    extra_blocks.append(blk)
+                extra_caps.update(caps)
+            if extra_blocks or extra_caps:
+                script_text = merge_features(script_text, extra_blocks, extra_caps)
+        except ModuleNotFoundError:  # pragma: no cover - features pkg deleted entirely
+            pass
 
     # Determine output destination.
     if args.stdout:
@@ -624,6 +666,7 @@ def _add_apply_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--dry-run", action="store_true", help="Show what would be moved without actually moving")
     p.add_argument("--no-create", action="store_true", help="Do not create target folders if they do not exist")
+    p.add_argument("--tag", help="Only apply rules whose 'tags' list contains this tag")
     p.add_argument(
         "--subscribe",
         action="store_true",
@@ -666,6 +709,12 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     except Exception as exc:
         eprint(f"Alias file error: {exc}")
         return 2
+
+    tag_filter = getattr(args, "tag", None)
+    if tag_filter:
+        before = len(config.rules)
+        config.rules = [r for r in config.rules if tag_filter in getattr(r, "tags", [])]
+        eprint(f"Tag filter --tag={tag_filter!r}: {len(config.rules)} of {before} rules selected.")
 
     server_raw = args.host or (imap_cfg.host if imap_cfg and imap_cfg.host else None) or _prompt("IMAP host[:port]")
     default_port = imap_cfg.port if imap_cfg else DEFAULT_IMAP_PORT
@@ -752,8 +801,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # importlib (rather than `from ... import`) keeps mypy happy when a
     # given module file has been deleted, and the ModuleNotFoundError is
     # caught so the rest of the CLI keeps working.
-    import importlib
-
     for _modname in ("sync", "backup", "restore"):
         try:
             _mod = importlib.import_module(f"autosieve.commands.{_modname}")

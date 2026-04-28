@@ -4,15 +4,31 @@ Generate Sieve scripts from JSON alias mappings, extract email aliases from IMAP
 
 **Use case**: You have many email aliases (`alias@company.com`) all forwarded to one inbox. The original alias is visible in `To:`, `Delivered-To:`, `X-Original-To:`, or `Received: ... for <alias>` headers. This tool discovers those aliases and generates Sieve rules to sort them into folders.
 
+> Upgrading from 0.1.x? See [MIGRATION.md](MIGRATION.md) and the
+> [CHANGELOG](CHANGELOG.md). The package, console script and config file
+> were renamed (`mailfilter` -> `autosieve`) and the configuration grew a
+> multi-target schema with optional features (vacation, notify, custom
+> filters, OAuth2, alias tags, backup/restore, end-to-end `sync`).
+
 ## Quick start
 
 ```bash
 uv sync
 cp autosieve.template.toml autosieve.toml   # edit with your server details
-uv run autosieve extract-aliases               # scan IMAP and write aliases.json
-uv run autosieve generate aliases.json         # generate autosieve.sieve
-uv run autosieve upload                        # upload existing sieve file
+uv run autosieve sync --yes                 # extract -> generate -> apply -> upload
 ```
+
+Or run the four steps individually:
+
+```bash
+uv run autosieve extract                    # scan IMAP and write aliases.json
+uv run autosieve generate                   # produce the sieve script
+uv run autosieve apply                      # retroactively move existing mail
+uv run autosieve upload                     # push the script via ManageSieve
+```
+
+Multi-target setups select with `--target NAME`; if omitted, the
+config's `default_target` (or the first listed target) is used.
 
 ## Configuration
 
@@ -24,30 +40,41 @@ cp autosieve.template.toml autosieve.toml
 
 `autosieve.toml` is **auto-loaded** from the current directory. Use `--config path/to/other.toml` to override.
 
+Minimal multi-target config:
+
 ```toml
-[imap]
+data_dir = "./targets"
+# default_target = "personal"
+
+[[targets]]
+name = "personal"
+
+[targets.imap]
 host = "mail.example.com"
 user = "you@example.com"
 domain = "example.com"
-connection_security = "auto"     # auto | ssl | starttls | none
-# store_password = true           # store prompted IMAP password in keyring
-folders = ["INBOX"]              # IMAP folders to scan (supports multiple)
-# incremental = true             # use last_fetched for incremental scanning
+connection_security = "ssl"
 
-[managesieve]
+[targets.managesieve]
 host = "mail.example.com"
 username = "you@example.com"
-connection_security = "auto"     # auto | ssl | starttls | none
-# store_password = true           # store prompted ManageSieve password in keyring
-folder_prefix = "alias"          # aliases sorted into <prefix>/<local-part>
-# authz_id = ""                  # SASL authorization identity (RFC 4616)
-
-[filenames]
-sieve_file = "autosieve.sieve"  # default output for 'generate'
-alias_file = "aliases.json"      # default output for 'extract-aliases'
+folder_prefix = "alias"
 ```
 
-CLI flags override config values; missing mandatory values are prompted interactively.
+By default each target's data lives under `<data_dir>/<target.name>/`
+(`./targets/personal/aliases.json`,
+`./targets/personal/aliasfilter.sieve`); override these with
+`[targets.filenames]`. Pass `--target work` (etc.) to operate on a
+different `[[targets]]` entry.
+
+The 0.1.x flat schema (top-level `[imap] / [managesieve] / [filenames]`)
+is still accepted -- it materialises as a single target named `default`.
+
+See [autosieve.template.toml](autosieve.template.toml) for the full
+example with optional feature blocks.
+
+CLI flags override config values; missing mandatory values are prompted
+interactively.
 
 ## Usage
 
@@ -56,13 +83,13 @@ CLI flags override config values; missing mandatory values are prompted interact
 Scan your inbox to discover all aliases used:
 
 ```bash
-uv run autosieve extract-aliases
+uv run autosieve extract
 ```
 
 Or with explicit parameters:
 
 ```bash
-uv run autosieve extract-aliases mail.example.com \
+uv run autosieve extract mail.example.com \
     --user you@example.com \
     --domain example.com \
     --since 2025-01-01 \
@@ -253,7 +280,58 @@ The `connection_security` setting aligns with Thunderbird's naming:
 | `starttls` | Upgrade plaintext to TLS (Thunderbird: STARTTLS). |
 | `none` | No encryption (Thunderbird: None). |
 
-## Development
+## End-to-end pipeline: `sync`
+
+`autosieve sync` chains the four pipeline stages so you only need one
+command per refresh:
+
+```bash
+uv run autosieve sync                    # interactive: prompts before each step
+uv run autosieve sync --yes              # skip prompts for non-destructive steps
+uv run autosieve sync --yes --yes-apply  # also skip the (destructive) apply prompt
+uv run autosieve sync --no-apply         # refresh aliases + script, do not move mail
+```
+
+The destructive `apply` step (which moves messages between IMAP folders)
+always asks for confirmation unless `--yes-apply` is given, even with
+`--yes`. Step-skip flags: `--no-extract`, `--no-apply`, `--no-upload`.
+
+## Backup / restore
+
+```bash
+uv run autosieve backup                       # snapshot local files only
+uv run autosieve backup --remote              # also download all server scripts
+uv run autosieve backup --list                # list snapshots for the target
+
+uv run autosieve restore --list               # see what's available
+uv run autosieve restore --snapshot 20260105T120000Z
+uv run autosieve restore --remote --yes-remote  # also re-upload server scripts
+```
+
+Snapshots live under `<data_dir>/<target>/backups/<ISO timestamp>/` and
+include `aliases.json`, the local sieve file, and (with `--remote`) one
+file per server script plus a `manifest.json` recording which one was
+active.
+
+## Optional features
+
+Each is one removable file under `src/autosieve/features/`. Configure by
+adding the corresponding TOML block under your target; see
+[autosieve.template.toml](autosieve.template.toml) for full examples.
+
+| Feature | Config block | What it adds |
+|---------|--------------|--------------|
+| Vacation auto-reply (RFC 5230) | `[targets.features.vacation]` | `vacation` action with subject / body / days |
+| Notify (RFC 5435) | `[[targets.features.notify.rules]]` | `notify :method ... :message ...` triggered by header / from / subject tests |
+| Custom filters | `[[targets.features.custom_filters.rules]]` | Extra Sieve `if` blocks on header / from / to / cc / subject / body |
+| Alias tags | `tags = [...]` per rule in `aliases.json` | `--tag NAME` filter on `generate` and `apply` |
+| OAuth2 / XOAUTH2 | `[targets.features.oauth2]` | Bearer-token auth via `token_command` (provider device-code flow scaffolded) |
+
+To remove a feature entirely, delete its file under
+`src/autosieve/features/`; the CLI will silently skip it on the next
+run.
+
+
 
 ```bash
 uv sync

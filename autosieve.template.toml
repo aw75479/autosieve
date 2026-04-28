@@ -1,0 +1,129 @@
+# autosieve server configuration
+# Copy this file to autosieve.toml, remove the .template suffix, and edit.
+# autosieve auto-loads autosieve.toml from the current directory.
+#
+# v0.2.0 multi-target schema: every server entry is a [[targets]] block.
+# A configuration with a single target stays just as concise as the legacy
+# single-server format, but you can append additional [[targets]] entries
+# to manage multiple accounts (work, personal, ...) from one CLI install.
+# Use --target NAME on any command to operate on a specific target.
+
+# Top-level options
+# -----------------
+# data_dir  : base directory under which per-target alias / sieve files live
+#             (default: "./targets"). Each target's data goes under
+#             <data_dir>/<target.name>/ unless overridden via
+#             targets.data_dir. Add this directory to .gitignore if your
+#             config file is checked in.
+data_dir = "./targets"
+# default_target = "personal"   # optional; otherwise the first target wins.
+
+[[targets]]
+name = "personal"
+# data_dir = "./private/personal"   # optional override
+
+[targets.imap]
+host = "mail.example.com"
+port = 993
+user = "you@example.com"
+# password = "secret"            # optional -- prompted if omitted; keyring is preferred
+connection_security = "ssl"      # ssl | starttls | none
+# store_password = true          # store prompted password in system keyring
+folders = ["INBOX"]              # IMAP folders to scan; supports multiple: ["INBOX", "Sent"]
+domain = "example.com"           # only extract aliases matching this domain
+# headers = ["To", "Delivered-To", "X-Original-To"]
+# incremental = true             # use last_fetched from alias file for incremental scanning
+# folder_sep = "."               # folder hierarchy separator (".", "/", etc.)
+# auth = "plain"                 # "plain" (default) or "xoauth2" (requires features.oauth2)
+
+[targets.managesieve]
+host = "mail.example.com"
+port = 4190
+username = "you@example.com"
+# password = "secret"            # optional -- prompted if omitted
+connection_security = "ssl"      # ssl | starttls | none
+# store_password = true          # store prompted password in system keyring
+# authz_id = ""                  # SASL authorization identity (RFC 4616); empty = normal use
+folder_prefix = "alias"          # aliases are sorted into <prefix><sep><local-part>
+# folder_sep = "."               # folder hierarchy separator (must match [targets.imap])
+# auth = "plain"                 # "plain" (default) or "xoauth2"
+# scripts = ["autosieve"]        # script names this target manages on the server
+
+[targets.filenames]
+# Optional explicit paths. By default these resolve to:
+#   <data_dir>/<target.name>/aliases.json
+#   <data_dir>/<target.name>/aliasfilter.sieve
+# sieve_file = "./targets/personal/aliasfilter.sieve"
+# alias_file = "./targets/personal/aliases.json"
+
+# ---------------------------------------------------------------------------
+# Optional features (each is independent; omit the block to disable).
+# Each feature module under autosieve/features/ is removable in isolation.
+# ---------------------------------------------------------------------------
+
+# RFC 5230 vacation auto-reply.
+# [targets.features.vacation]
+# enabled    = true
+# subject    = "Out of office"
+# body       = "I am away until next month."
+# # body_file = "/path/to/longer-message.txt"
+# days       = 7
+# addresses  = ["you@example.com", "you+alias@example.com"]
+# from_addr  = "you@example.com"
+# handle     = "ooo-2026"
+
+# RFC 5435 enotify rules.
+# [targets.features.notify]
+# enabled = true
+#
+# [[targets.features.notify.rules]]
+# name       = "boss-urgent"
+# if_from    = "boss@example.com"
+# method     = "mailto:phone@sms.example.com"
+# message    = "URGENT message"
+#
+# [[targets.features.notify.rules]]
+# name       = "subject-keyword"
+# if_subject = "URGENT"
+# method     = "xmpp:you@xmpp.example.com"
+
+# Custom (non-alias) Sieve filters: arbitrary header / from / subject / body.
+# [targets.features.custom_filters]
+# enabled = true
+#
+# [[targets.features.custom_filters.rules]]
+# name    = "newsletters"
+# if_from = "*@news.example.com"        # glob -> uses Sieve :matches
+# action  = "fileinto"
+# folder  = "INBOX/Newsletters"
+#
+# [[targets.features.custom_filters.rules]]
+# name        = "spam-subject"
+# if_subject  = "WIN A PRIZE"
+# action      = "discard"
+#
+# [[targets.features.custom_filters.rules]]
+# name      = "list-id"
+# if_header = ["List-Id", "*<my.list.example.com>*"]
+# action    = "fileinto"
+# folder    = "INBOX/Lists"
+# stop      = true
+
+# OAuth2 / XOAUTH2 token resolution (only consulted when targets.imap.auth or
+# targets.managesieve.auth is set to "xoauth2").
+# [targets.features.oauth2]
+# token_command = "/usr/local/bin/get-gmail-token you@gmail.com"
+# # provider = "gmail"           # scaffolded; device-code flow not yet implemented
+# # cache_in_keyring = true
+
+# ---------------------------------------------------------------------------
+# Add additional targets by repeating the [[targets]] block, e.g. for work:
+# ---------------------------------------------------------------------------
+# [[targets]]
+# name = "work"
+# [targets.imap]
+# host = "imap.work.example"
+# user = "you@work.example"
+# [targets.managesieve]
+# host = "imap.work.example"
+# username = "you@work.example"

@@ -11,7 +11,39 @@ IMAP Inbox ──> extract ──> aliases.json ──> generate ──> .sieve 
    (scan)        (discover)        (edit/merge)     (render)    (script)    (upload)
 
 IMAP Inbox ──> apply ──> IMAP folders (retroactive rule enforcement)
+
+extract -> generate -> apply -> upload    can be run as one ``sync`` command.
 ```
+
+## Layout (v0.2.0)
+
+The package is split into three layers, each isolated for easy
+add/remove of functionality without touching the rest:
+
+```
+src/autosieve/
+    __init__.py
+    cli.py                # argparse + the four built-in subcommands
+    config.py             # alias-file model (Rule, Config, JSON loader)
+    imap_alias.py         # IMAP scanning + retroactive apply
+    managesieve.py        # ManageSieve client (PUT/CHECK/SET/LIST/GET/DELETE)
+    sieve.py              # Sieve script emitter (header / envelope modes)
+    server_config.py      # multi-target TOML schema
+    commands/             # optional sub-commands -- one file per command
+        sync.py
+        backup.py
+        restore.py
+    features/             # optional sieve-affecting features
+        vacation.py       # RFC 5230
+        notify.py         # RFC 5435
+        custom_filters.py # arbitrary header / from / subject / body filters
+        oauth2.py         # XOAUTH2 token resolution
+```
+
+Modules under ``commands/`` and ``features/`` are loaded by
+``cli.build_arg_parser()`` and ``cli._cmd_generate()`` via
+``importlib.import_module``; deleting any of these files removes that
+feature without breaking the rest of the CLI.
 
 ## Modules
 

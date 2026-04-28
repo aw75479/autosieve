@@ -2,6 +2,22 @@
 
 This document describes the security considerations for autosieve.
 
+> v0.2.0 notes
+>
+> * The system-keyring service id changed from ``mailfilter`` to
+>   ``autosieve``.  See [MIGRATION.md](../MIGRATION.md) for how to move
+>   existing entries.
+> * The OAuth2 / XOAUTH2 feature ships with a working ``token_command``
+>   strategy and a *scaffolded* built-in device-code flow for Gmail and
+>   Microsoft 365.  The built-in flow intentionally has no embedded
+>   client_id -- a public default would expose every user to mass
+>   revocation.  Until you supply your own credentials, only the
+>   ``token_command`` strategy is operational.
+> * Backup snapshots (``autosieve backup``) contain alias names and (with
+>   ``--remote``) the full text of every server-side Sieve script.
+>   Treat them as PII; the default location ``./targets/<name>/backups/``
+>   is gitignored by the shipped ``.gitignore``.
+
 ## Threat Model
 
 autosieve handles email credentials (IMAP and ManageSieve passwords) and

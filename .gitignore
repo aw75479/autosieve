@@ -22,6 +22,15 @@ mailfilter.sieve
 aliasfilter.sieve
 aliases.json
 
+# Per-target data folders (autosieve >= 0.2.0)
+targets/
+# OAuth2 token caches
+*.oauthcache
+.tokens/
+# Backups
+*.bak
+backups/
+
 # Test coverage artefacts
 .coverage
 htmlcov/
